@@ -323,7 +323,7 @@ bool runloop_environment_cb(unsigned cmd, void *data);
 void runloop_msg_queue_push(const char *msg,
       unsigned prio, unsigned duration,
       bool flush,
-      char *title,
+      const char *title,
       enum message_queue_icon icon,
       enum message_queue_category category);
 
