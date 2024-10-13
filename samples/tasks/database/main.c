@@ -39,7 +39,7 @@ int main(int argc, char *argv[])
 #if defined(_WIN32)
    const char *exts          = "dll";
 #elif defined(__MACH__)
-   const char *exts          = "dylib";
+   const char *exts          = "framework";
 #else
    const char *exts          = "so";
 #endif

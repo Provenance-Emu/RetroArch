@@ -524,6 +524,7 @@ typedef struct settings
       char directory_input_remapping[PATH_MAX_LENGTH];
       char directory_overlay[PATH_MAX_LENGTH];
       char directory_resampler[PATH_MAX_LENGTH];
+      char directory_osk_overlay[PATH_MAX_LENGTH];
       char directory_screenshot[PATH_MAX_LENGTH];
       char directory_system[PATH_MAX_LENGTH];
       char directory_cache[PATH_MAX_LENGTH];

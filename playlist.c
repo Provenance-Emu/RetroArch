@@ -1074,11 +1074,39 @@ void playlist_resolve_path(enum playlist_file_mode mode,
 {
 #ifdef HAVE_COCOATOUCH
    char tmp[PATH_MAX_LENGTH];
+   int _len = 0;
 
    if (mode == PLAYLIST_LOAD)
    {
-      fill_pathname_expand_special(tmp, path, sizeof(tmp));
-      strlcpy(path, tmp, len);
+      if (is_core &&
+          string_starts_with(path, ":/Frameworks/") &&
+          string_ends_with(path, ".framework"))
+      {
+         /* iOS cores used to be packaged as .dylib files in the modules
+          * directory; App Store rules require turning them into Frameworks and
+          * putting them in the Frameworks directory. Because some playlists
+          * include the old core path, we'll translate it here.
+          */
+         path[string_index_last_occurance(path, '.')] = '\0';
+         if (string_ends_with(path, "_ios"))
+            path[string_index_last_occurance(path, '_')] = '\0';
+         _len += strlcpy(tmp + _len, ":/Frameworks/", STRLEN_CONST(":/Frameworks/") + 1);
+         _len += strlcpy(tmp + _len, path + STRLEN_CONST(":/modules/"), sizeof(tmp) - _len);
+         /* iOS framework names, to quote Apple:
+          * "must contain only alphanumerics, dots, hyphens and must not end with a dot."
+          *
+          * Since core names include underscore, which is not allowed, but not dot,
+          * which is, we change underscore to dot.
+          */
+         string_replace_all_chars(tmp, '_', '.');
+         strlcpy(tmp + _len, ".framework", sizeof(tmp));
+         fill_pathname_expand_special(path, tmp, len);
+      }
+      else
+      {
+         fill_pathname_expand_special(tmp, path, sizeof(tmp));
+         strlcpy(path, tmp, len);
+      }
    }
    else
    {

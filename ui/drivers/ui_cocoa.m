@@ -940,7 +940,7 @@ static void open_document_handler(
       settings_t *settings          = config_get_ptr();
       const char *path_dir_libretro = settings->paths.directory_libretro;
 
-      browser_state.filters         = strdup("dylib");
+      browser_state.filters         = strdup("framework");
       browser_state.filters_title   = strdup(msg_hash_to_str(MENU_ENUM_LABEL_VALUE_CORE_SETTINGS));
       browser_state.title           = strdup(msg_hash_to_str(MENU_ENUM_LABEL_VALUE_CORE_LIST));
       browser_state.startdir        = strdup(path_dir_libretro);

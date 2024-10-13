@@ -98,7 +98,7 @@ static INLINE bool bits_any_different(uint32_t *a, uint32_t *b, uint32_t count)
 #endif
 
 #ifndef NAME_MAX_LENGTH
-#define NAME_MAX_LENGTH 256
+#define NAME_MAX_LENGTH 512
 #endif
 
 #ifndef MAX
