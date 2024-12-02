@@ -463,9 +463,9 @@ enum
 {
    [super sendEvent:event];
     if (@available(iOS 13.4, tvOS 13.4, *)) {
-      if (event.type == UIEventTypeHover)
-         return;
-   }
+        if (event.type == UIEventTypeHover)
+            return;
+    }
    if (event.allTouches.count)
       handle_touch_event(event.allTouches.allObjects);
 
@@ -479,16 +479,16 @@ enum
          /* Keyboard event hack for iOS versions prior to iOS 7.
           *
           * Derived from:
-                  * http://nacho4d-nacho4d.blogspot.com/2012/01/
-                  * catching-keyboard-events-in-ios.html
-                  */
+	  * http://nacho4d-nacho4d.blogspot.com/2012/01/
+	  * catching-keyboard-events-in-ios.html
+	  */
          const uint8_t *eventMem = objc_unretainedPointer([event performSelector:@selector(_gsEvent)]);
          int           eventType = eventMem ? *(int*)&eventMem[8] : 0;
 
          switch (eventType)
          {
             case GSEVENT_TYPE_KEYDOWN:
-              case GSEVENT_TYPE_KEYUP:
+            case GSEVENT_TYPE_KEYUP:
                apple_input_keyboard_event(eventType == GSEVENT_TYPE_KEYDOWN,
                      *(uint16_t*)&eventMem[0x3C], 0, 0, RETRO_DEVICE_KEYBOARD);
                break;
