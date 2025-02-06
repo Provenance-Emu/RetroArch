@@ -722,7 +722,7 @@ bool video_driver_translate_coord_viewport(
    if (mouse_x >= 0 && mouse_x <= norm_vp_width)
       scaled_x        = ((2 * mouse_x * 0x7fff)
             / norm_vp_width) - 0x7fff;
-   else
+      else
       scaled_x        = -0x8000; /* OOB */
 
    if (mouse_y >= 0 && mouse_y <= norm_vp_height)
@@ -2059,10 +2059,10 @@ void video_viewport_get_scaled_aspect(struct video_viewport *vp, unsigned viewpo
 
 void video_viewport_get_scaled_aspect2(struct video_viewport *vp, unsigned viewport_width, unsigned viewport_height, bool ydown, float device_aspect, float desired_aspect)
 {
-   settings_t *settings           = config_get_ptr();
+   settings_t *settings = config_get_ptr();
    video_driver_state_t *video_st = &video_driver_st;
-   int x                          = 0;
-   int y                          = 0;
+   int x                = 0;
+   int y                = 0;
 
    float viewport_bias_x    = settings->floats.video_viewport_bias_x;
    float viewport_bias_y    = settings->floats.video_viewport_bias_y;
@@ -2079,18 +2079,18 @@ void video_viewport_get_scaled_aspect2(struct video_viewport *vp, unsigned viewp
    if (settings->uints.video_aspect_ratio_idx == ASPECT_RATIO_CUSTOM)
    {
       video_viewport_t *custom_vp = &settings->video_viewport_custom;
-      int padding_x               = 0;
-      int padding_y               = 0;
-      x                           = custom_vp->x;
-      y                           = custom_vp->y;
+      int padding_x     = 0;
+      int padding_y     = 0;
+      x                 = custom_vp->x;
+      y                 = custom_vp->y;
       if (!ydown)
-         y                        = vp->full_height - (y + custom_vp->height);
+         y              = vp->full_height - (y + custom_vp->height);
       padding_x += (viewport_width - custom_vp->width);
       if (padding_x < 0)
-         padding_x *= 2;
+         padding_x     *= 2;
       padding_y = viewport_height - custom_vp->height;
       if (padding_y < 0)
-         padding_y *= 2;
+         padding_y     *= 2;
       viewport_width = custom_vp->width;
       viewport_height = custom_vp->height;
       x += padding_x * viewport_bias_x;
@@ -2109,13 +2109,13 @@ void video_viewport_get_scaled_aspect2(struct video_viewport *vp, unsigned viewp
       }
       else if (device_aspect > desired_aspect)
       {
-         delta = (desired_aspect / device_aspect - 1.0f) / 2.0f + 0.5f;
+         delta      = (desired_aspect / device_aspect - 1.0f) / 2.0f + 0.5f;
          x    += (int)roundf(viewport_width * ((0.5f - delta) * (viewport_bias_x * 2.0f)));
          viewport_width = (unsigned)roundf(2.0f * viewport_width * delta);
       }
       else
       {
-         delta  = (device_aspect / desired_aspect - 1.0f) / 2.0f + 0.5f;
+         delta      = (device_aspect / desired_aspect - 1.0f) / 2.0f + 0.5f;
          y     += (int)roundf(viewport_height * ((0.5f - delta) * (viewport_bias_y * 2.0f)));
          viewport_height = (unsigned)roundf(2.0f * viewport_height * delta);
       }
@@ -2536,13 +2536,13 @@ void video_viewport_get_scaled_integer(struct video_viewport *vp,
                   float halfstep_prev_ratio = (float)(content_width * max_scale_w) / (float)(content_height * max_scale_h);
                   float halfstep_next_ratio = (float)(content_width * max_scale_w) / (float)(content_height * (max_scale_h + 0.5f));
 
-                  half_h = 1;
+                     half_h = 1;
 
-                  if (halfstep_next_ratio - target_ratio <= target_ratio - halfstep_prev_ratio)
-                     half_w = 1;
+                     if (halfstep_next_ratio - target_ratio <= target_ratio - halfstep_prev_ratio)
+                        half_w = 1;
+                  }
                }
             }
-         }
 
          padding_x = width  - content_width  * (max_scale_w + (half_w * 0.5f));
          padding_y = height - content_height * (max_scale_h + (half_h * 0.5f));
@@ -2565,10 +2565,10 @@ void video_viewport_get_scaled_integer(struct video_viewport *vp,
    x += padding_x * viewport_bias_x;
    y += padding_y * viewport_bias_y;
 
-   vp->width  = width;
-   vp->height = height;
-   vp->x      = x;
-   vp->y      = y;
+   vp->width   = width;
+   vp->height  = height;
+   vp->x       = x;
+   vp->y       = y;
 
    /* Statistics */
    video_st->scale_width  = vp->width;
@@ -3629,8 +3629,8 @@ void video_driver_frame(const void *data, unsigned width,
     *   previously sending duped frames, ensure
     *   that the next frame update is captured) */
 #if HAVE_MENU
-   if (   video_info.input_driver_nonblock_state
-       && video_info.fastforward_frameskip
+   if (     video_info.input_driver_nonblock_state
+         && video_info.fastforward_frameskip
        &&  !((video_info.menu_st_flags & MENU_ST_FLAG_ALIVE)
        ||   (last_frame_duped && !!data)))
 #else
@@ -4073,58 +4073,58 @@ void video_driver_frame(const void *data, unsigned width,
 
       /* TODO/FIXME - localize */
       snprintf(video_info.stat_text,
-            sizeof(video_info.stat_text),
-            "CORE AV_INFO\n"
-            " Size:        %u x %u\n"
-            " - Base:      %u x %u\n"
-            " - Max:       %u x %u\n"
-            " Aspect:      %3.3f\n"
-            " FPS:         %3.2f\n"
-            " Sample Rate: %6.2f\n"
-            "VIDEO: %s\n"
-            " Viewport:    %u x %u\n"
-            " - Scale:     %u x %u\n"
-            " - Scale X/Y: %2.2f / %2.2f\n"
-            " Refresh:     %5.2f hz\n"
-            " Frame Rate:  %5.2f fps\n"
-            " Frame Time:  %5.2f ms\n"
-            " - Deviation: %5.2f %%\n"
-            " Frames:   %8" PRIu64"\n"
-            " - Dropped:   %5u\n"
-            "AUDIO: %s\n"
-            " Saturation:  %5.2f %%\n"
-            " Deviation:   %5.2f %%\n"
-            " Underrun:    %5.2f %%\n"
-            " Blocking:    %5.2f %%\n"
-            " Samples:  %8d\n"
+                        sizeof(video_info.stat_text),
+               "CORE AV_INFO\n"
+               " Size:        %u x %u\n"
+               " - Base:      %u x %u\n"
+               " - Max:       %u x %u\n"
+               " Aspect:      %3.3f\n"
+               " FPS:         %3.2f\n"
+               " Sample Rate: %6.2f\n"
+               "VIDEO: %s\n"
+               " Viewport:    %u x %u\n"
+               " - Scale:     %u x %u\n"
+               " - Scale X/Y: %2.2f / %2.2f\n"
+               " Refresh:    %6.2f hz\n"
+               " Frame Rate:%7.2f fps\n"
+               " Frame Time: %6.2f ms\n"
+               " - Deviation:%6.2f %%\n"
+               " Frames:   %8" PRIu64"\n"
+               " - Dropped:   %5u\n"
+               "AUDIO: %s\n"
+               " Saturation: %6.2f %%\n"
+               " Deviation:  %6.2f %%\n"
+               " Underrun:   %6.2f %%\n"
+               " Blocking:   %6.2f %%\n"
+               " Samples:  %8d\n"
             "%s",
-            video_st->frame_cache_width,
-            video_st->frame_cache_height,
-            av_info->geometry.base_width,
-            av_info->geometry.base_height,
-            av_info->geometry.max_width,
-            av_info->geometry.max_height,
-            av_info->geometry.aspect_ratio,
-            av_info->timing.fps,
-            av_info->timing.sample_rate,
-            video_st->current_video->ident,
-            video_info.width,
-            video_info.height,
-            video_info.scale_width,
-            video_info.scale_height,
+               video_st->frame_cache_width,
+               video_st->frame_cache_height,
+               av_info->geometry.base_width,
+               av_info->geometry.base_height,
+               av_info->geometry.max_width,
+               av_info->geometry.max_height,
+               av_info->geometry.aspect_ratio,
+               av_info->timing.fps,
+               av_info->timing.sample_rate,
+               video_st->current_video->ident,
+               video_info.width,
+               video_info.height,
+               video_info.scale_width,
+               video_info.scale_height,
             (float)video_info.scale_width / ((rotation % 2) ? (float)video_st->frame_cache_height : (float)video_st->frame_cache_width),
             (float)video_info.scale_height / ((rotation % 2) ? (float)video_st->frame_cache_width : (float)video_st->frame_cache_height),
-            video_info.refresh_rate,
-            last_fps,
-            frame_time / 1000.0f,
-            100.0f * stddev,
-            video_st->frame_count,
-            video_st->frame_drop_count,
-            audio_state_get_ptr()->current_audio->ident,
-            audio_stats.average_buffer_saturation,
-            audio_stats.std_deviation_percentage,
-            audio_stats.close_to_underrun,
-            audio_stats.close_to_blocking,
+               video_info.refresh_rate,
+               last_fps,
+               frame_time / 1000.0f,
+               100.0f * stddev,
+               video_st->frame_count,
+               video_st->frame_drop_count,
+               audio_state_get_ptr()->current_audio->ident,
+               audio_stats.average_buffer_saturation,
+               audio_stats.std_deviation_percentage,
+               audio_stats.close_to_underrun,
+               audio_stats.close_to_blocking,
             audio_stats.samples,
             latency_stats);
 
