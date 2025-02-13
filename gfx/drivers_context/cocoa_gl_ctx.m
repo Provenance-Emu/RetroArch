@@ -481,7 +481,16 @@ static bool cocoa_gl_gfx_ctx_set_video_mode(void *data,
 
    if (cocoa_ctx->flags & COCOA_CTX_FLAG_USE_HW_CTX)
       g_hw_ctx      = [[EAGLContext alloc] initWithAPI:kEAGLRenderingAPIOpenGLES3];
-   g_ctx            = [[EAGLContext alloc] initWithAPI:kEAGLRenderingAPIOpenGLES3];
+      g_ctx         = [[EAGLContext alloc] initWithAPI:kEAGLRenderingAPIOpenGLES3];
+#elif defined(HAVE_OPENGLES2)
+   if (cocoa_ctx->flags & COCOA_CTX_FLAG_USE_HW_CTX)
+   {
+      g_hw_ctx      = [[EAGLContext alloc] initWithAPI:kEAGLRenderingAPIOpenGLES2];
+      g_ctx         = [[EAGLContext alloc] initWithAPI:kEAGLRenderingAPIOpenGLES2 sharegroup:g_hw_ctx.sharegroup];
+   }
+   else
+      g_ctx         = [[EAGLContext alloc] initWithAPI:kEAGLRenderingAPIOpenGLES2];
+#endif
 
 #ifdef OSX
    [g_ctx makeCurrentContext];
