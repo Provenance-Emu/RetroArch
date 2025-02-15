@@ -357,6 +357,9 @@ static const location_driver_t *location_drivers[] = {
 #ifdef ANDROID
    &location_android,
 #endif
+#if defined(HAVE_COCOA) || defined(HAVE_COCOATOUCH)
+   &location_corelocation,
+#endif
    &location_null,
    NULL,
 };
