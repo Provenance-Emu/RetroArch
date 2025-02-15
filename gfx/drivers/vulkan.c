@@ -336,35 +336,22 @@ static void vulkan_destroy_texture(
 {
    if (tex->mapped)
       vkUnmapMemory(device, tex->memory);
+
+   // Destroy resources in the correct order
    if (tex->view)
       vkDestroyImageView(device, tex->view, NULL);
+
    if (tex->image)
       vkDestroyImage(device, tex->image, NULL);
+
    if (tex->buffer)
       vkDestroyBuffer(device, tex->buffer, NULL);
+
    if (tex->memory)
       vkFreeMemory(device, tex->memory, NULL);
 
-#ifdef VULKAN_DEBUG_TEXTURE_ALLOC
-   if (tex->image)
-      vulkan_track_dealloc(tex->image);
-#endif
-   tex->type                          = VULKAN_TEXTURE_STREAMED;
-   tex->flags                         = 0;
-   tex->memory_type                   = 0;
-   tex->width                         = 0;
-   tex->height                        = 0;
-   tex->offset                        = 0;
-   tex->stride                        = 0;
-   tex->size                          = 0;
-   tex->mapped                        = NULL;
-   tex->image                         = VK_NULL_HANDLE;
-   tex->view                          = VK_NULL_HANDLE;
-   tex->memory                        = VK_NULL_HANDLE;
-   tex->buffer                        = VK_NULL_HANDLE;
-   tex->format                        = VK_FORMAT_UNDEFINED;
-   tex->memory_size                   = 0;
-   tex->layout                        = VK_IMAGE_LAYOUT_UNDEFINED;
+   // Clear the texture structure
+   memset(tex, 0, sizeof(*tex));
 }
 
 static struct vk_texture vulkan_create_texture(vk_t *vk,
@@ -866,6 +853,16 @@ static struct vk_texture vulkan_create_texture(vk_t *vk,
             /* TODO/FIXME - stubs */
             break;
       }
+   }
+
+   // If we're replacing an old texture, destroy it safely
+   if (old && old->image)
+   {
+      // Ensure all commands using the old texture have completed
+      vkDeviceWaitIdle(vk->context->device);
+
+      // Destroy the old texture
+      vulkan_destroy_texture(vk->context->device, old);
    }
 
    return tex;
