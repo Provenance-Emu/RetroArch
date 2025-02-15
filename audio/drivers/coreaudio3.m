@@ -196,7 +196,7 @@ static bool g_interrupted;
       rb_init(&_rb, _bufferSize);
 
       desc.componentType          = kAudioUnitType_Output;
-      desc.componentSubType       = kAudioUnitSubType_DefaultOutput;
+      desc.componentSubType       = kAudioUnitSubType_GenericOutput;
       desc.componentManufacturer  = kAudioUnitManufacturer_Apple;
 
       au = [[AUAudioUnit alloc] initWithComponentDescription:desc error:&err];
