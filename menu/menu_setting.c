@@ -23310,6 +23310,7 @@ static bool setting_append_list(
                   SD_FLAG_NONE);
             (*list)[list_info->index - 1].change_handler = samba_enable_toggle_change_handler;
 
+#ifdef HAVE_BLUETOOTH
             CONFIG_BOOL(
                   list, list_info,
                   &settings->bools.bluetooth_enable,
@@ -23325,7 +23326,7 @@ static bool setting_append_list(
                   general_read_handler,
                   SD_FLAG_NONE);
             (*list)[list_info->index - 1].change_handler = bluetooth_enable_toggle_change_handler;
-
+#endif
 #ifdef HAVE_WIFI
             CONFIG_BOOL(
                   list, list_info,
