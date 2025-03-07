@@ -642,6 +642,11 @@ extern microphone_driver_t microphone_sdl;
 extern microphone_driver_t microphone_wasapi;
 
 /**
+ * The CoreAudio-backed microphone driver.
+ */
+extern microphone_driver_t microphone_coreaudio;
+
+/**
  * The PipeWire-backed microphone driver.
  */
 extern microphone_driver_t microphone_pipewire;
