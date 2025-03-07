@@ -96,39 +96,5 @@ bool jb_enable_ptrace_hack(void) {
 
 bool jit_available(void)
 {
-   static bool canOpenApps = false;
-   static dispatch_once_t appsOnce = 0;
-   dispatch_once(&appsOnce, ^{
-      DIR *apps = opendir("/Applications");
-      if (apps)
-      {
-         closedir(apps);
-         canOpenApps = true;
-      }
-   });
-
-   static bool dylded = false;
-   static dispatch_once_t dyldOnce = 0;
-   dispatch_once(&dyldOnce, ^{
-      int imageCount = _dyld_image_count();
-      for (int i = 0; i < imageCount; i++)
-      {
-         if (string_is_equal("/usr/lib/pspawn_payload-stg2.dylib", _dyld_get_image_name(i)))
-            dylded = true;
-      }
-   });
-
-   static bool doped = false;
-   static dispatch_once_t dopeOnce = 0;
-   dispatch_once(&dopeOnce, ^{
-      int64_t (*jbdswDebugMe)(void) = dlsym(RTLD_DEFAULT, "jbdswDebugMe");
-      if (jbdswDebugMe)
-      {
-         int64_t ret = jbdswDebugMe();
-         doped = (ret == 0);
-      }
-   });
-
-   /* the debugger could be attached at any time, its value can't be cached */
-   return canOpenApps || dylded || doped || jb_has_debugger_attached();
+   return true;
 }
