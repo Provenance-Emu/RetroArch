@@ -86,6 +86,8 @@ OTHER_CFLAGS = $(inherited) -DWANT_RAW_DATA_SECTOR=1
 OTHER_CFLAGS = $(inherited) -DWANT_SUBCODE=1
 OTHER_CFLAGS = $(inherited) -D_7ZIP_ST
 OTHER_CFLAGS = $(inherited) -D__LIBRETRO__
+OTHER_CFLAGS = $(inherited) -march=armv8-a+simd
+OTHER_CFLAGS = $(inherited) -mcpu=apple-a10
 
 OTHER_CFLAGS[arch=x86_64] = $(inherited) -DHAVE_SSE
 OTHER_CFLAGS[arch=arm64*] = $(inherited) -D__ARM_NEON__ -DHAVE_NEON
@@ -119,6 +121,7 @@ OTHER_CFLAGS_IOS_TVOS_SHARE = $(inherited) -DHAVE_OPENGLES3
 OTHER_CFLAGS_IOS_TVOS_SHARE = $(inherited) -DIOS
 OTHER_CFLAGS_IOS_TVOS_SHARE = $(inherited) -DPACKAGE_VERSION=\"$(MARKETING_VERSION)\"
 OTHER_CFLAGS_IOS_TVOS_SHARE = $(inherited) -DRARCH_MOBILE
+OTHER_CFLAGS_IOS_TVOS_SHARE = $(inherited) -DHAVE_AVF
 
 OTHER_CFLAGS[sdk=iphoneos*] = $(inherited) $(OTHER_CFLAGS_IOS_TVOS_SHARE)
 OTHER_CFLAGS[sdk=iphonesimulator*] = $(inherited) $(OTHER_CFLAGS_IOS_TVOS_SHARE)
