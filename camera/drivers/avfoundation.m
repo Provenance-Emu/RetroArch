@@ -213,10 +213,7 @@ didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
         }
 
         // Determine rotation based on platform and camera type
-#if TARGET_OS_OSX
-        int rotationDegrees = 0; // Default 180-degree rotation for most cases
-        bool shouldMirror = true;
-#else
+#if TARGET_OS_IOS
         int rotationDegrees = 180; // Default 180-degree rotation for most cases
         bool shouldMirror = false;
 
@@ -234,6 +231,9 @@ didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
                 RARCH_LOG("[Camera]: Using 270-degree rotation with mirroring for front camera in portrait mode\n");
             }
         }
+#else
+        int rotationDegrees = 0; // Default 0-degree rotation for most cases
+        bool shouldMirror = true;
 #endif
 
         // Rotate image
@@ -367,7 +367,7 @@ didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
     } // End of autorelease pool
 }
 
-- (AVCaptureDevice *)selectCameraDevice {
+- (AVCaptureDevice *)selectCameraDevice  API_AVAILABLE(tvos(17.0)) {
     RARCH_LOG("[Camera]: Selecting camera device\n");
 
     NSArray<AVCaptureDevice *> *devices;
