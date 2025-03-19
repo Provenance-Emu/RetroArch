@@ -45,6 +45,9 @@
 #include "../video_driver.h"
 
 #include "../common/vulkan_common.h"
+#if defined(HAVE_COCOATOUCH) || defined(TARGET_OS_TV)
+#include "../../../PVRetroArchCore/Core/vulkan_ios_tvos_helpers.h"
+#endif
 
 #include "../../configuration.h"
 #ifdef HAVE_REWIND
@@ -2277,6 +2280,13 @@ static void vulkan_init_pipelines(vk_t *vk)
 
    /* Input assembly */
    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+#if defined(HAVE_COCOATOUCH) || defined(TARGET_OS_TV)
+   /* On iOS/tvOS, Metal doesn't support disabling primitive restart */
+   vulkan_ios_tvos_setup_input_assembly(&input_assembly);
+#else
+   /* Default behavior - primitive restart disabled */
+   input_assembly.primitiveRestartEnable = VK_FALSE;
+#endif
 
    /* VAO state */
    attributes[0].location  = 0;
@@ -2401,6 +2411,13 @@ static void vulkan_init_pipelines(vk_t *vk)
       input_assembly.topology = i & 2 ?
          VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP :
          VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+#if defined(HAVE_COCOATOUCH) || defined(TARGET_OS_TV)
+      /* On iOS/tvOS, Metal doesn't support disabling primitive restart */
+      vulkan_ios_tvos_setup_input_assembly(&input_assembly);
+#else
+      /* Default behavior - primitive restart disabled */
+      input_assembly.primitiveRestartEnable = VK_FALSE;
+#endif
       blend_attachment.blendEnable = i & 1;
       vkCreateGraphicsPipelines(vk->context->device, vk->pipelines.cache,
             1, &pipe, NULL, &vk->display.pipelines[i]);
@@ -2428,6 +2445,13 @@ if (vk->context->flags & VK_CTX_FLAG_HDR_SUPPORT)
    for (i = 4; i < 6; i++)
    {
       input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+#if defined(HAVE_COCOATOUCH) || defined(TARGET_OS_TV)
+      /* On iOS/tvOS, Metal doesn't support disabling primitive restart */
+      vulkan_ios_tvos_setup_input_assembly(&input_assembly);
+#else
+      /* Default behavior - primitive restart disabled */
+      input_assembly.primitiveRestartEnable = VK_FALSE;
+#endif
       vkCreateGraphicsPipelines(vk->context->device, vk->pipelines.cache,
             1, &pipe, NULL, &vk->display.pipelines[i]);
    }
@@ -2546,6 +2570,13 @@ if (vk->context->flags & VK_CTX_FLAG_HDR_SUPPORT)
       input_assembly.topology = i & 1 ?
          VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP :
          VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+#if defined(HAVE_COCOATOUCH) || defined(TARGET_OS_TV)
+      /* On iOS/tvOS, Metal doesn't support disabling primitive restart */
+      vulkan_ios_tvos_setup_input_assembly(&input_assembly);
+#else
+      /* Default behavior - primitive restart disabled */
+      input_assembly.primitiveRestartEnable = VK_FALSE;
+#endif
 
       vkCreateGraphicsPipelines(vk->context->device, vk->pipelines.cache,
             1, &pipe, NULL, &vk->display.pipelines[6 + i]);
