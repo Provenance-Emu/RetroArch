@@ -483,9 +483,9 @@ static void audio_driver_flush(audio_driver_state_t *audio_st,
       dsp_data.output_frames         = 0;
 
       /* Initialize the DSP input/output.
-       * Our DSP implementations generally operate directly on the 
+       * Our DSP implementations generally operate directly on the
        * input buffer, so the output/output_frames attributes here are zero;
-       * the DSP filter will set them to useful values, most likely to be 
+       * the DSP filter will set them to useful values, most likely to be
        * the same as the inputs. */
 
       retro_dsp_filter_process(audio_st->dsp, &dsp_data);
@@ -565,7 +565,7 @@ static void audio_driver_flush(audio_driver_state_t *audio_st,
          audio_st->avg_flush_delta = audio_st->avg_flush_delta * (n - 1) / n +
             (flush_time - audio_st->last_flush_time) / n;
 
-         /* How much does the avg_flush_delta deviate 
+         /* How much does the avg_flush_delta deviate
           * from the delta at 1.0x speed? */
          src_data.ratio *=
             MAX(AUDIO_MIN_RATIO,
@@ -598,7 +598,7 @@ static void audio_driver_flush(audio_driver_state_t *audio_st,
 #endif
 
    /* Now we write our processed audio output to the driver.
-    * It may not be played immediately, depending on 
+    * It may not be played immediately, depending on
     * the driver implementation. */
    {
       const void *output_data = audio_st->output_samples_buf;
@@ -693,7 +693,7 @@ bool audio_driver_init_internal(void *settings_data, bool audio_cb_inited)
       audio_driver_st.flags     &= ~AUDIO_FLAG_ACTIVE;
       return false;
    }
-   
+
    audio_driver_st.flags     |= AUDIO_FLAG_ACTIVE;
 
    if (!(audio_driver_find_driver(settings->arrays.audio_driver,
@@ -865,6 +865,10 @@ void audio_driver_sample(int16_t left, int16_t right)
       return;
    audio_st->output_samples_conv_buf[audio_st->data_ptr++] = left;
    audio_st->output_samples_conv_buf[audio_st->data_ptr++] = right;
+   { /* PV: forward most-recent stereo sample for visualizer */
+      extern void pv_ra_waveform_forward(const int16_t *data, size_t frames);
+      pv_ra_waveform_forward(&audio_st->output_samples_conv_buf[audio_st->data_ptr - 2], 1);
+   }
 
    if (audio_st->data_ptr < audio_st->chunk_size)
       return;
@@ -899,37 +903,39 @@ void audio_driver_sample(int16_t left, int16_t right)
 
 size_t audio_driver_sample_batch(const int16_t *data, size_t frames)
 {
-   uint32_t runloop_flags;
-   bool recording_push_audio      = false;
-   bool flush_audio               = false;
-   size_t frames_remaining        = frames;
-   recording_state_t *record_st   = recording_state_get_ptr();
-   audio_driver_state_t *audio_st = &audio_driver_st;
-   float slowmotion_ratio         = config_get_ptr()->floats.slowmotion_ratio;
+    uint32_t runloop_flags;
+    bool recording_push_audio      = false;
+    bool flush_audio               = false;
+    size_t frames_remaining        = frames;
+    recording_state_t *record_st   = recording_state_get_ptr();
+    audio_driver_state_t *audio_st = &audio_driver_st;
+    float slowmotion_ratio         = config_get_ptr()->floats.slowmotion_ratio;
+    // PV: keep original pointer for visualization forwarder
+    const int16_t *pv_data_copy    = data;
 
-   if ((audio_st->flags & AUDIO_FLAG_SUSPENDED) || (frames < 1))
-      return frames;
+    if ((audio_st->flags & AUDIO_FLAG_SUSPENDED) || (frames < 1))
+       return frames;
 
-   runloop_flags                  = runloop_get_flags();
-   flush_audio                    = !((runloop_flags & RUNLOOP_FLAG_PAUSED)
+    runloop_flags                  = runloop_get_flags();
+    flush_audio                    = !((runloop_flags & RUNLOOP_FLAG_PAUSED)
             || !(audio_st->flags & AUDIO_FLAG_ACTIVE)
             || !(audio_st->output_samples_buf));
-   recording_push_audio           = record_st->data
-           && record_st->driver
-           && record_st->driver->push_audio;
+    recording_push_audio           = record_st->data
+            && record_st->driver
+            && record_st->driver->push_audio;
 
-   /* We want to run this loop at least once, so use a
-    * do...while (do...while has only a single conditional
-    * jump, as opposed to for and while which have a
-    * conditional jump and an unconditional jump). Note,
-    * however, that this is only relevant for compilers
-    * that are poor at optimisation... */
+    /* We want to run this loop at least once, so use a
+     * do...while (do...while has only a single conditional
+     * jump, as opposed to for and while which have a
+     * conditional jump and an unconditional jump). Note,
+     * however, that this is only relevant for compilers
+     * that are poor at optimisation... */
 
-   do
-   {
+    do
+    {
       size_t frames_to_write =
             (frames_remaining > (AUDIO_CHUNK_SIZE_NONBLOCKING >> 1))
-                  ? (AUDIO_CHUNK_SIZE_NONBLOCKING >> 1) 
+                  ? (AUDIO_CHUNK_SIZE_NONBLOCKING >> 1)
                   : frames_remaining;
 
       if (recording_push_audio)
@@ -950,9 +956,15 @@ size_t audio_driver_sample_batch(const int16_t *data, size_t frames)
 
       frames_remaining -= frames_to_write;
       data             += frames_to_write << 1;
-   } while (frames_remaining > 0);
+    } while (frames_remaining > 0);
 
-   return frames;
+    /* PV: forward full original batch for visualizer */
+    {
+        extern void pv_ra_waveform_forward(const int16_t *data, size_t frames);
+        pv_ra_waveform_forward(pv_data_copy, frames);
+    }
+
+    return frames;
 }
 
 #ifdef HAVE_REWIND
@@ -1996,7 +2008,7 @@ bool microphone_driver_start(void)
 
    /* If there's an opened microphone that the core turned on... */
    if (microphone->flags & MICROPHONE_FLAG_ACTIVE)
-   { 
+   {
       /* If this microphone was requested before the driver was ready...*/
       if (microphone->flags & MICROPHONE_FLAG_PENDING)
       {
@@ -2035,7 +2047,7 @@ bool microphone_driver_stop(void)
    microphone_driver_state_t *mic_st = &mic_driver_st;
    retro_microphone_t    *microphone = &mic_st->microphone;
 
-   /* If there's an opened microphone that the core 
+   /* If there's an opened microphone that the core
     * turned on and received... */
    if (      (microphone->flags & MICROPHONE_FLAG_ACTIVE)
          &&  (microphone->flags & MICROPHONE_FLAG_ENABLED)
