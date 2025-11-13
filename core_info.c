@@ -2802,6 +2802,10 @@ bool core_info_current_supports_savestate(void)
     * is supported */
    if (!p_coreinfo->current)
       return true;
+   /* If core info file was not found or not loaded,
+    * assume default savestate support (DETERMINISTIC) */
+   if (!p_coreinfo->current->has_info)
+      return true;
    return p_coreinfo->current->savestate_support_level >=
          CORE_INFO_SAVESTATE_BASIC;
 }
@@ -2817,6 +2821,10 @@ bool core_info_current_supports_rewind(void)
     * by default that all savestate functionality
     * is supported */
    if (!p_coreinfo->current)
+      return true;
+   /* If core info file was not found or not loaded,
+    * assume default savestate support (DETERMINISTIC) */
+   if (!p_coreinfo->current->has_info)
       return true;
    return p_coreinfo->current->savestate_support_level >=
          CORE_INFO_SAVESTATE_SERIALIZED;
@@ -2834,6 +2842,10 @@ bool core_info_current_supports_netplay(void)
     * is supported */
    if (!p_coreinfo->current)
       return true;
+   /* If core info file was not found or not loaded,
+    * assume default savestate support (DETERMINISTIC) */
+   if (!p_coreinfo->current->has_info)
+      return true;
    return p_coreinfo->current->savestate_support_level >=
          CORE_INFO_SAVESTATE_DETERMINISTIC;
 }
@@ -2849,6 +2861,10 @@ bool core_info_current_supports_runahead(void)
     * by default that all savestate functionality
     * is supported */
    if (!p_coreinfo->current)
+      return true;
+   /* If core info file was not found or not loaded,
+    * assume default savestate support (DETERMINISTIC) */
+   if (!p_coreinfo->current->has_info)
       return true;
    return p_coreinfo->current->savestate_support_level >=
          CORE_INFO_SAVESTATE_DETERMINISTIC;
