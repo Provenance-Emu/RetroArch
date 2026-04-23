@@ -885,8 +885,17 @@ static void cocoa_input_grab_mouse(void *data, bool state)
 
    apple->mouse_grabbed = state;
 
-   if (@available(iOS 14, *))
-      [[CocoaView get] setNeedsUpdateOfPrefersPointerLocked];
+   if (@available(iOS 14, *)) {
+      // Provenance runs the RA frame loop on a dedicated emulation thread,
+      // so this input callback may fire off-main. UIViewController APIs
+      // like setNeedsUpdateOfPrefersPointerLocked must run on main.
+      if ([NSThread isMainThread])
+         [[CocoaView get] setNeedsUpdateOfPrefersPointerLocked];
+      else
+         dispatch_async(dispatch_get_main_queue(), ^{
+            [[CocoaView get] setNeedsUpdateOfPrefersPointerLocked];
+         });
+   }
 }
 #endif
 
