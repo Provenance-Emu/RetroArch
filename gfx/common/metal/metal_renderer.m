@@ -170,7 +170,7 @@ matrix_float4x4 matrix_proj_ortho(float left, float right, float top, float bott
    if (self = [super init])
    {
       int i;
-      
+
       _inflightSemaphore         = dispatch_semaphore_create(MAX_INFLIGHT);
       _device                    = d;
       _layer                     = layer;
@@ -663,6 +663,15 @@ matrix_float4x4 matrix_proj_ortho(float left, float right, float top, float bott
    _backBuffer = nil;
 }
 
+- (void)finishCurrentEncoder
+{
+   if (_rce)
+   {
+      [_rce endEncoding];
+      _rce = nil;
+   }
+}
+
 - (id<MTLRenderCommandEncoder>)rce
 {
    assert(_commandBuffer != nil);
@@ -908,7 +917,7 @@ static const NSUInteger kConstantAlignment = 4;
 @end
 
 /*
- * FILTER 
+ * FILTER
  */
 
 @interface Filter()
@@ -972,7 +981,7 @@ static const NSUInteger kConstantAlignment = 4;
 {
    id<MTLComputeCommandEncoder> ce = [cb computeCommandEncoder];
    ce.label = @"filter kernel";
- 
+
    [ce setComputePipelineState:_kernel];
 
    [ce setBuffer:tin offset:0 atIndex:0];

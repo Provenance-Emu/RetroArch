@@ -7549,6 +7549,9 @@ bool core_set_cheat(retro_ctx_cheat_info_t *info)
    }
 #endif
 
+   if (!runloop_st->current_core.retro_cheat_set)
+      return false;
+
    runloop_st->current_core.retro_cheat_set(info->index, info->enabled, info->code);
 
 #if defined(HAVE_RUNAHEAD) && (defined(HAVE_DYNAMIC) || defined(HAVE_DYLIB))
@@ -7589,7 +7592,8 @@ bool core_reset_cheat(void)
    }
 #endif
 
-   runloop_st->current_core.retro_cheat_reset();
+   if (runloop_st->current_core.retro_cheat_reset)
+      runloop_st->current_core.retro_cheat_reset();
 
 #if defined(HAVE_RUNAHEAD) && (defined(HAVE_DYNAMIC) || defined(HAVE_DYLIB))
    if (   (want_runahead)
@@ -7789,8 +7793,12 @@ void core_reset(void)
 {
    runloop_state_t *runloop_st    = &runloop_state;
    video_driver_state_t *video_st = video_state_get_ptr();
-   video_st->frame_cache_data     = NULL;
-   runloop_st->current_core.retro_reset();
+   if(video_st != NULL) {
+      video_st->frame_cache_data     = NULL;
+   }
+   if(runloop_st != NULL && runloop_st->current_core != NULL) {
+      runloop_st->current_core.retro_reset();
+   }
 }
 
 void core_run(void)

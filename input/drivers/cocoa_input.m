@@ -90,6 +90,13 @@ void apple_direct_input_keyboard_event(bool down,
 {
     int apple_key              = rarch_keysym_lut[code];
 
+#ifdef DEBUG
+    if (code >= RETROK_0 && code <= RETROK_9) {
+       RARCH_LOG("[KeyboardEvt] code=%u(RETROK_%c) apple_key=%d down=%d\n",
+                 code, '0' + (code - RETROK_0), apple_key, down);
+    }
+#endif
+
     if (!apple_key)
        return;
 

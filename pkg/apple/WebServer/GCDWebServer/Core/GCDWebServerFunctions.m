@@ -35,6 +35,7 @@
 #else
 #import <SystemConfiguration/SystemConfiguration.h>
 #endif
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <CommonCrypto/CommonDigest.h>
 
 #import <ifaddrs.h>
@@ -176,10 +177,9 @@ NSString* GCDWebServerGetMimeTypeForExtension(NSString* extension, NSDictionary<
       mimeType = [builtInOverrides objectForKey:extension];
     }
     if (mimeType == nil) {
-      CFStringRef uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, (__bridge CFStringRef)extension, NULL);
-      if (uti) {
-        mimeType = CFBridgingRelease(UTTypeCopyPreferredTagWithClass(uti, kUTTagClassMIMEType));
-        CFRelease(uti);
+      UTType *const utType = [UTType typeWithFilenameExtension:extension];
+      if (utType != nil) {
+        mimeType = utType.preferredMIMEType;
       }
     }
   }

@@ -112,6 +112,9 @@ typedef NS_ENUM(NSUInteger, ViewportResetMode) {
 /*! @brief Main render encoder to back buffer */
 @property (nonatomic, readonly) id<MTLRenderCommandEncoder> rce;
 
+/*! @brief Finishes and releases the current render command encoder */
+- (void)finishCurrentEncoder;
+
 - (instancetype)initWithDevice:(id<MTLDevice>)d
                          layer:(CAMetalLayer *)layer
                        library:(id<MTLLibrary>)l;

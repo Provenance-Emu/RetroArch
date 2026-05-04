@@ -147,7 +147,6 @@ appstore_cores=(
     cap32
     crocods
     desmume
-    dice
     dinothawr
     dirksimple
     dosbox_pure
@@ -203,7 +202,6 @@ appstore_cores=(
     pcsx_rearmed
     picodrive
     #play
-    pocketcdg
     pokemini
     potator
     ppsspp

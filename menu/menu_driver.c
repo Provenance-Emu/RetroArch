@@ -5285,8 +5285,13 @@ unsigned menu_event(
     * Note: Must be done regardless of menu screensaver
     *       state */
 
-   /* > If pointer input is disabled, do nothing */
-   if (!menu_mouse_enable && !menu_pointer_enable)
+   /* > If pointer input is disabled, or the menu driver has not
+    *   been initialised yet (driver_data is NULL), do nothing.
+    *   Without a valid menu handle the input helpers may read
+    *   uninitialised driver state, leading to a crash on iOS
+    *   when the runloop polls input before the menu is ready. */
+   if (  !menu
+       || (!menu_mouse_enable && !menu_pointer_enable))
       menu_input->pointer.type = MENU_POINTER_DISABLED;
    else
    {

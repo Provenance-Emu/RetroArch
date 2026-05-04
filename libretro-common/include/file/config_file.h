@@ -25,11 +25,12 @@
 
 #include <retro_common_api.h>
 
-RETRO_BEGIN_DECLS
-
+/* stdio/stdint outside RETRO_BEGIN_DECLS: ObjC++ + Clang modules reject std_stdint_h inside extern "C". */
 #include <stdio.h>
 #include <stdint.h>
 #include <stddef.h>
+
+RETRO_BEGIN_DECLS
 
 #include <boolean.h>
 

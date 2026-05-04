@@ -6229,9 +6229,12 @@ void libretro_free_system_info(struct retro_system_info *sysinfo)
    if (!sysinfo)
       return;
 
-   free((void*)sysinfo->library_name);
-   free((void*)sysinfo->library_version);
-   free((void*)sysinfo->valid_extensions);
+   /* Provenance: Do NOT free() these pointers — libretro_get_system_info()
+    * points them at static buffers inside runloop_state (current_library_name,
+    * current_library_version, current_valid_extensions). Calling free() on
+    * those crashes with "pointer being freed was not allocated" on re-launch
+    * within the same process (e.g. returning to library and starting another
+    * game). Just zero the struct so the pointers are cleared. */
    memset(sysinfo, 0, sizeof(*sysinfo));
 }
 
