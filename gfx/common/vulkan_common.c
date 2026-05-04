@@ -2644,7 +2644,12 @@ void vulkan_present(gfx_ctx_vulkan_data_t *vk, unsigned index)
    trigger_spurious_error_vkresult(&err);
 #endif
 
-   if (err != VK_SUCCESS || result != VK_SUCCESS)
+   if (err == VK_ERROR_DEVICE_LOST || result == VK_ERROR_DEVICE_LOST)
+   {
+      RARCH_ERR("[Vulkan] Device lost during present. Flagging for safe teardown.\n");
+      vk->context.flags |= VK_CTX_FLAG_DEVICE_LOST;
+   }
+   else if (err != VK_SUCCESS || result != VK_SUCCESS)
    {
       RARCH_LOG("[Vulkan] QueuePresent failed, destroying swapchain.\n");
       vulkan_destroy_swapchain(vk);

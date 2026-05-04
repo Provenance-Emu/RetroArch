@@ -1360,11 +1360,14 @@ static void vulkan_font_free(void *data, bool is_threaded)
    if (font->font_driver && font->font_data)
       font->font_driver->free(font->font_data);
 
-   vkQueueWaitIdle(font->vk->context->queue);
-   vulkan_destroy_texture(
-         font->vk->context->device, &font->texture);
-   vulkan_destroy_texture(
-         font->vk->context->device, &font->texture_optimal);
+   if (!(font->vk->context->flags & VK_CTX_FLAG_DEVICE_LOST))
+   {
+      vkQueueWaitIdle(font->vk->context->queue);
+      vulkan_destroy_texture(
+            font->vk->context->device, &font->texture);
+      vulkan_destroy_texture(
+            font->vk->context->device, &font->texture_optimal);
+   }
 
    free(font);
 }
@@ -2662,6 +2665,10 @@ static void vulkan_buffer_chain_free(
 static void vulkan_deinit_buffers(vk_t *vk)
 {
    int i;
+
+   if (vk->context->flags & VK_CTX_FLAG_DEVICE_LOST)
+      return;
+
    for (i = 0; i < (int) vk->num_swapchain_images; i++)
    {
       vulkan_buffer_chain_free(
@@ -2674,6 +2681,10 @@ static void vulkan_deinit_buffers(vk_t *vk)
 static void vulkan_deinit_descriptor_pool(vk_t *vk)
 {
    int i;
+
+   if (vk->context->flags & VK_CTX_FLAG_DEVICE_LOST)
+      return;
+
    for (i = 0; i < (int) vk->num_swapchain_images; i++)
       vulkan_destroy_descriptor_manager(
             vk->context->device,
@@ -2719,6 +2730,9 @@ static void vulkan_deinit_textures(vk_t *vk)
    if (vulkan_is_mapped_swapchain_texture_ptr(vk, cached_frame))
       video_st->frame_cache_data  = NULL;
 
+   if (vk->context->flags & VK_CTX_FLAG_DEVICE_LOST)
+      return;
+
    vkDestroySampler(vk->context->device, vk->samplers.nearest,        NULL);
    vkDestroySampler(vk->context->device, vk->samplers.linear,         NULL);
    vkDestroySampler(vk->context->device, vk->samplers.mipmap_nearest, NULL);
@@ -2742,6 +2756,10 @@ static void vulkan_deinit_textures(vk_t *vk)
 static void vulkan_deinit_command_buffers(vk_t *vk)
 {
    int i;
+
+   if (vk->context->flags & VK_CTX_FLAG_DEVICE_LOST)
+      return;
+
    for (i = 0; i < (int) vk->num_swapchain_images; i++)
    {
       if (vk->swapchain[i].cmd)
@@ -2756,6 +2774,9 @@ static void vulkan_deinit_command_buffers(vk_t *vk)
 static void vulkan_deinit_pipelines(vk_t *vk)
 {
    int i;
+
+   if (vk->context->flags & VK_CTX_FLAG_DEVICE_LOST)
+      return;
 
    vkDestroyPipelineLayout(vk->context->device,
          vk->pipelines.layout, NULL);
@@ -2785,6 +2806,10 @@ if (vk->context->flags & VK_CTX_FLAG_HDR_SUPPORT)
 static void vulkan_deinit_framebuffers(vk_t *vk)
 {
    int i;
+
+   if (vk->context->flags & VK_CTX_FLAG_DEVICE_LOST)
+      return;
+
    for (i = 0; i < (int) vk->num_swapchain_images; i++)
    {
       if (vk->backbuffers[i].framebuffer)
@@ -2802,6 +2827,8 @@ static void vulkan_deinit_framebuffers(vk_t *vk)
 #ifdef VULKAN_HDR_SWAPCHAIN
 static void vulkan_deinit_hdr_readback_render_pass(vk_t *vk)
 {
+   if (vk->context->flags & VK_CTX_FLAG_DEVICE_LOST)
+      return;
    vkDestroyRenderPass(vk->context->device, vk->readback_render_pass, NULL);
 }
 
@@ -3064,6 +3091,10 @@ static void vulkan_init_static_resources(vk_t *vk)
 static void vulkan_deinit_static_resources(vk_t *vk)
 {
    int i;
+
+   if (vk->context->flags & VK_CTX_FLAG_DEVICE_LOST)
+      return;
+
    vkDestroyPipelineCache(vk->context->device,
          vk->pipelines.cache, NULL);
    vulkan_destroy_texture(
@@ -3086,6 +3117,10 @@ static void vulkan_deinit_static_resources(vk_t *vk)
 static void vulkan_deinit_menu(vk_t *vk)
 {
    int i;
+
+   if (vk->context->flags & VK_CTX_FLAG_DEVICE_LOST)
+      return;
+
    for (i = 0; i < VULKAN_MAX_SWAPCHAIN_IMAGES; i++)
    {
       if (vk->menu.textures[i].memory)
@@ -3116,13 +3151,20 @@ static void vulkan_free(void *data)
 
    if (vk->context && vk->context->device)
    {
+      if (!(vk->context->flags & VK_CTX_FLAG_DEVICE_LOST))
+      {
+         VkResult queue_res;
 #ifdef HAVE_THREADS
-      slock_lock(vk->context->queue_lock);
+         slock_lock(vk->context->queue_lock);
 #endif
-      vkQueueWaitIdle(vk->context->queue);
+         queue_res = vkQueueWaitIdle(vk->context->queue);
 #ifdef HAVE_THREADS
-      slock_unlock(vk->context->queue_lock);
+         slock_unlock(vk->context->queue_lock);
 #endif
+         if (queue_res == VK_ERROR_DEVICE_LOST)
+            vk->context->flags |= VK_CTX_FLAG_DEVICE_LOST;
+      }
+
       vulkan_deinit_pipelines(vk);
       vulkan_deinit_framebuffers(vk);
       vulkan_deinit_descriptor_pool(vk);
@@ -3598,15 +3640,24 @@ error:
 
 static void vulkan_check_swapchain(vk_t *vk)
 {
+   VkResult queue_res;
    struct vulkan_filter_chain_swapchain_info filter_info;
 
 #ifdef HAVE_THREADS
    slock_lock(vk->context->queue_lock);
 #endif
-   vkQueueWaitIdle(vk->context->queue);
+   queue_res = vkQueueWaitIdle(vk->context->queue);
 #ifdef HAVE_THREADS
    slock_unlock(vk->context->queue_lock);
 #endif
+
+   if (queue_res == VK_ERROR_DEVICE_LOST)
+   {
+      RARCH_ERR("[Vulkan] Device lost detected in swapchain check. Skipping teardown.\n");
+      vk->context->flags |= VK_CTX_FLAG_DEVICE_LOST;
+      return;
+   }
+
    vulkan_deinit_pipelines(vk);
    vulkan_deinit_framebuffers(vk);
    vulkan_deinit_descriptor_pool(vk);
@@ -5105,8 +5156,14 @@ static bool vulkan_frame(void *data, const void *frame,
       vk->flags &= ~VK_FLAG_SHOULD_RESIZE;
    }
 
+   if (vk->context->flags & VK_CTX_FLAG_DEVICE_LOST)
+      return true;
+
    if (vk->context->flags & VK_CTX_FLAG_INVALID_SWAPCHAIN)
       vulkan_check_swapchain(vk);
+
+   if (vk->context->flags & VK_CTX_FLAG_DEVICE_LOST)
+      return true;
 
    /* Disable BFI during fast forward, slow-motion,
     * pause, and menu to prevent flicker. */
@@ -5493,6 +5550,11 @@ static void vulkan_unload_texture(void *data,
 
    /* TODO: We really want to defer this deletion instead,
     * but this will do for now. */
+   if (vk->context->flags & VK_CTX_FLAG_DEVICE_LOST)
+   {
+      free(texture);
+      return;
+   }
 #ifdef HAVE_THREADS
    slock_lock(vk->context->queue_lock);
 #endif

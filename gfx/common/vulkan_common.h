@@ -296,6 +296,8 @@ enum vulkan_context_flags
    VK_CTX_FLAG_HAS_ACQUIRED_SWAPCHAIN       = (1 << 4),
    /* Whether HDR colorspaces are supported by the instance */
    VK_CTX_FLAG_HDR_SUPPORT                  = (1 << 5),
+   /* Set when VK_ERROR_DEVICE_LOST is returned — skip further Vk calls */
+   VK_CTX_FLAG_DEVICE_LOST                  = (1 << 6),
 };
 
 enum vulkan_emulated_mailbox_flags
