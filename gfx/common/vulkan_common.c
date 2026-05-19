@@ -2287,6 +2287,42 @@ bool vulkan_create_swapchain(gfx_ctx_vulkan_data_t *vk,
       return false;
    }
 
+   /*
+    * Re-query the surface capabilities AFTER creation. On iOS/iPadOS with
+    * MoltenVK + adaptive scaling (Stage Manager, ProMotion, Split View),
+    * the CAMetalLayer can settle on a `drawableSize` that does NOT match
+    * what we requested in `info.imageExtent` — MoltenVK silently accepts
+    * the create request but the underlying MTLTextures for the swapchain
+    * images are sized to the layer's actual drawableSize. If we cache
+    * `swapchain_size` as the context dimensions, every subsequent
+    * renderpass will use a `renderArea.extent` larger than the attachment
+    * texture and trip Metal's API validator
+    * (renderTargetWidth must be <= minimum attachment width).
+    *
+    * The post-create `currentExtent` is the authoritative source for the
+    * texture dimensions, so write THAT back to the context if it differs
+    * from what we asked for.
+    */
+   {
+      VkSurfaceCapabilitiesKHR post_caps;
+      if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk->context.gpu,
+               vk->vk_surface, &post_caps) == VK_SUCCESS
+            && post_caps.currentExtent.width  != UINT32_MAX
+            && post_caps.currentExtent.height != UINT32_MAX
+            && post_caps.currentExtent.width  > 0
+            && post_caps.currentExtent.height > 0
+            && (post_caps.currentExtent.width  != swapchain_size.width
+             || post_caps.currentExtent.height != swapchain_size.height))
+      {
+         RARCH_WARN("[Vulkan] post-create surface currentExtent (%ux%u) "
+                    "differs from requested swapchain extent (%ux%u) — "
+                    "using the post-create value to match actual attachment dims.\n",
+                    post_caps.currentExtent.width, post_caps.currentExtent.height,
+                    swapchain_size.width, swapchain_size.height);
+         swapchain_size = post_caps.currentExtent;
+      }
+   }
+
    vk->context.swapchain_width        = swapchain_size.width;
    vk->context.swapchain_height       = swapchain_size.height;
 #ifdef VULKAN_HDR_SWAPCHAIN

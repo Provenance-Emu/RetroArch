@@ -20,11 +20,13 @@
 
 #if TARGET_OS_IPHONE
 #include <CoreGraphics/CoreGraphics.h>
+#import <QuartzCore/CAMetalLayer.h>
 #else
 #include <ApplicationServices/ApplicationServices.h>
 #endif
 #ifdef OSX
 #include <AppKit/NSScreen.h>
+#import <QuartzCore/CAMetalLayer.h>
 #endif
 
 #include <retro_timers.h>
@@ -131,10 +133,43 @@ static void cocoa_vk_gfx_ctx_get_video_size(void *data,
       unsigned* width, unsigned* height)
 {
     UIView *renderView              = apple_platform.renderView;
-    CGRect size                     = [renderView bounds];
-    float viewScale                 = [renderView contentScaleFactor];
-    *width                          = CGRectGetWidth(size)  * viewScale;
-    *height                         = CGRectGetHeight(size) * viewScale;
+    /*
+     * iPadOS 26 + Stage Manager / Split View / adaptive resolution can cause
+     * the CAMetalLayer's drawableSize to settle at a scale that is NOT
+     * `view.bounds × view.contentScaleFactor`. On iPad Pro 12.9" we observe
+     * `contentScaleFactor == 2.0` but the actual layer drawable is sized at
+     * `bounds × 1.531` (1366×1024 → 2092×1568, not 2732×2048). Reporting the
+     * 2.0× value to `vulkan_create_swapchain` causes the eventual swapchain
+     * images to be different from what `vk->context.swapchain_width/height`
+     * tracks, and the renderpass extent then exceeds the attachment size →
+     * `_MTLDebugValidateRenderPassDescriptorAndTrackAttachments` validator
+     * abort during the first frame after the core renders.
+     *
+     * Prefer the CAMetalLayer's `drawableSize` directly — that IS the size
+     * MoltenVK presents into and matches the actual VkImage extents.
+     * Fall back to bounds × contentScaleFactor for views whose backing
+     * layer is not a CAMetalLayer (shouldn't happen with the Vulkan
+     * context driver, but defensive).
+     */
+    CGSize layerDrawable            = CGSizeZero;
+    CALayer *layer                  = renderView ? [renderView layer] : nil;
+    if (layer && [layer isKindOfClass:[CAMetalLayer class]])
+    {
+        CAMetalLayer *metalLayer    = (CAMetalLayer *)layer;
+        layerDrawable               = [metalLayer drawableSize];
+    }
+    if (layerDrawable.width > 0 && layerDrawable.height > 0)
+    {
+        *width                      = (unsigned)layerDrawable.width;
+        *height                     = (unsigned)layerDrawable.height;
+    }
+    else
+    {
+        CGRect size                 = [renderView bounds];
+        float viewScale             = [renderView contentScaleFactor];
+        *width                      = CGRectGetWidth(size)  * viewScale;
+        *height                     = CGRectGetHeight(size) * viewScale;
+    }
 }
 #endif
 
