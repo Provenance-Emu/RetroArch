@@ -2229,7 +2229,21 @@ bool vulkan_create_swapchain(gfx_ctx_vulkan_data_t *vk,
    }
 #endif
 
-   /* Clamp swapchain size to boundaries. */
+   /* Clamp swapchain size to boundaries.
+    *
+    * Skipped on iOS/iPadOS because MoltenVK reports
+    *   minImageExtent == maxImageExtent == currentExtent ==
+    *   view.bounds × view.contentScaleFactor
+    * which on iPadOS 26 with adaptive scaling does NOT match the
+    * CAMetalLayer's actual drawableSize. The min clamp would push our
+    * caller-provided (correct) value UP to MoltenVK's misreported
+    * 2732×2048 and re-trigger the renderpass-validator crash. The
+    * caller's value already comes from CAMetalLayer.drawableSize via
+    * cocoa_vk_ctx.m::get_video_size — it IS the realistic bound.
+    *
+    * Keep the clamp on desktop/Linux where surface caps are reliable.
+    */
+#if !defined(HAVE_COCOATOUCH) && !defined(IOS)
    if (swapchain_size.width > surface_properties.maxImageExtent.width)
       swapchain_size.width = surface_properties.maxImageExtent.width;
    if (swapchain_size.width < surface_properties.minImageExtent.width)
@@ -2238,6 +2252,7 @@ bool vulkan_create_swapchain(gfx_ctx_vulkan_data_t *vk,
       swapchain_size.height = surface_properties.maxImageExtent.height;
    if (swapchain_size.height < surface_properties.minImageExtent.height)
       swapchain_size.height = surface_properties.minImageExtent.height;
+#endif
 
    if (     (swapchain_size.width  == 0)
          && (swapchain_size.height == 0))
