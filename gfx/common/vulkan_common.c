@@ -2177,6 +2177,39 @@ bool vulkan_create_swapchain(gfx_ctx_vulkan_data_t *vk,
          format = formats[0];
    }
 
+   /*
+    * On iOS/iPadOS with MoltenVK + adaptive scaling (iPadOS 26 Stage
+    * Manager, Split View, ProMotion), `surface_properties.currentExtent`
+    * reports `view.bounds × view.contentScaleFactor` — NOT the actual
+    * `CAMetalLayer.drawableSize`. On iPad Pro 12.9 we see currentExtent
+    * = 2732×2048 while the actual layer drawable is 2092×1568. Using
+    * currentExtent here would size the swapchain context to 2732×2048
+    * but MoltenVK silently clamps the underlying MTLTextures down to
+    * the layer's actual drawableSize → every subsequent renderpass
+    * sets `renderArea.extent` to 2732×2048 against a 2092×1568
+    * attachment and trips
+    * `_MTLDebugValidateRenderPassDescriptorAndTrackAttachments`.
+    *
+    * Our cocoa_vk_ctx.m::get_video_size now reads CAMetalLayer.
+    * drawableSize directly (see Provenance/vulkan-device-lost-fix
+    * branch f413824c74), so on iOS the caller-provided width/height
+    * IS the authoritative source. Trust it over MoltenVK's
+    * possibly-stale currentExtent.
+    */
+#if defined(HAVE_COCOATOUCH) || defined(IOS)
+   if (width > 0 && height > 0)
+   {
+      swapchain_size.width  = width;
+      swapchain_size.height = height;
+   }
+   else if (surface_properties.currentExtent.width != UINT32_MAX)
+      swapchain_size = surface_properties.currentExtent;
+   else
+   {
+      swapchain_size.width  = width;
+      swapchain_size.height = height;
+   }
+#else
    if (surface_properties.currentExtent.width == UINT32_MAX)
    {
       swapchain_size.width     = width;
@@ -2184,6 +2217,7 @@ bool vulkan_create_swapchain(gfx_ctx_vulkan_data_t *vk,
    }
    else
       swapchain_size           = surface_properties.currentExtent;
+#endif
 
 #ifdef WSI_HARDENING_TEST
    if (trigger_spurious_error())
@@ -2288,21 +2322,24 @@ bool vulkan_create_swapchain(gfx_ctx_vulkan_data_t *vk,
    }
 
    /*
-    * Re-query the surface capabilities AFTER creation. On iOS/iPadOS with
-    * MoltenVK + adaptive scaling (Stage Manager, ProMotion, Split View),
-    * the CAMetalLayer can settle on a `drawableSize` that does NOT match
-    * what we requested in `info.imageExtent` — MoltenVK silently accepts
-    * the create request but the underlying MTLTextures for the swapchain
-    * images are sized to the layer's actual drawableSize. If we cache
-    * `swapchain_size` as the context dimensions, every subsequent
-    * renderpass will use a `renderArea.extent` larger than the attachment
-    * texture and trip Metal's API validator
-    * (renderTargetWidth must be <= minimum attachment width).
+    * Post-create surface-capabilities requery.
     *
-    * The post-create `currentExtent` is the authoritative source for the
-    * texture dimensions, so write THAT back to the context if it differs
-    * from what we asked for.
+    * Originally added to catch desktop drivers that silently adjust the
+    * swapchain size during VkCreateSwapchainKHR (HDR negotiation,
+    * refresh-rate adaptation, etc.). But on iOS/iPadOS with MoltenVK +
+    * adaptive scaling (iPadOS 26 Stage Manager, etc.),
+    * `surface_properties.currentExtent` reports `view.bounds ×
+    * contentScaleFactor` — NOT the CAMetalLayer's actual `drawableSize`
+    * — so on iPad we'd OVERWRITE the correct caller-provided extent
+    * with MoltenVK's wrong one, defeating the iOS pre-create fix above
+    * and re-triggering the renderpass-validator crash.
+    *
+    * Skip the requery on iOS where the caller's value is already
+    * authoritative (came from CAMetalLayer.drawableSize). Keep it on
+    * desktop/Linux where currentExtent is the correct authoritative
+    * source.
     */
+#if !defined(HAVE_COCOATOUCH) && !defined(IOS)
    {
       VkSurfaceCapabilitiesKHR post_caps;
       if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk->context.gpu,
@@ -2322,6 +2359,7 @@ bool vulkan_create_swapchain(gfx_ctx_vulkan_data_t *vk,
          swapchain_size = post_caps.currentExtent;
       }
    }
+#endif
 
    vk->context.swapchain_width        = swapchain_size.width;
    vk->context.swapchain_height       = swapchain_size.height;
