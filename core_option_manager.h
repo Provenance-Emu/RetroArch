@@ -40,6 +40,11 @@ struct core_option
    char *category_key;
    struct string_list *vals;
    struct string_list *val_labels;
+   /* Freeform current value when has_input is true.
+    * vals remain presets / legacy fallbacks. */
+   char *current;
+   char *input_allowed_chars;
+   char *input_pattern;
    /* opt_idx: option index, used for internal
     * bookkeeping */
    size_t opt_idx;
@@ -49,6 +54,14 @@ struct core_option
    size_t index;
    uint32_t key_hash;
    bool visible;
+   bool has_input;
+   enum retro_core_option_input_type input_type;
+   double input_min;
+   double input_max;
+   double input_step;
+   unsigned input_decimals;
+   unsigned input_min_length;
+   unsigned input_max_length;
 };
 
 struct core_category
@@ -415,6 +428,47 @@ bool core_option_manager_get_visible(core_option_manager_t *opt,
  **/
 void core_option_manager_set_val(core_option_manager_t *opt,
       size_t idx, size_t val_idx, bool refresh_menu);
+
+/**
+ * core_option_manager_set_val_string:
+ *
+ * @opt          : options manager handle
+ * @idx          : core option index
+ * @val          : freeform string value
+ * @refresh_menu : refresh menu on visibility change
+ *
+ * Sets a typed (or list) core option to @val.
+ * For typed options, @val must pass input validation.
+ * For list options, @val must match an entry in vals.
+ *
+ * Returns: true if the value was applied.
+ **/
+bool core_option_manager_set_val_string(core_option_manager_t *opt,
+      size_t idx, const char *val, bool refresh_menu);
+
+/**
+ * core_option_manager_set_inputs:
+ *
+ * @opt    : options manager handle
+ * @inputs : NULL-terminated array of typed input
+ *           descriptors (may be NULL to clear)
+ *
+ * Attaches typed freeform input metadata to matching
+ * option keys. Copies all strings. Re-reads config
+ * so freeform saved values are accepted when valid.
+ **/
+void core_option_manager_set_inputs(core_option_manager_t *opt,
+      const struct retro_core_option_input *inputs);
+
+/**
+ * core_option_manager_get_input:
+ *
+ * Fills @out with a temporary descriptor for option
+ * @idx (pointers into the option's owned strings).
+ * Returns false if the option has no typed input.
+ **/
+bool core_option_manager_get_input(core_option_manager_t *opt,
+      size_t idx, struct retro_core_option_input *out);
 
 /**
  * core_option_manager_adjust_val:

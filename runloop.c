@@ -1526,6 +1526,7 @@ bool runloop_environment_cb(unsigned cmd, void *data)
          {
             size_t opt_idx, val_idx;
             const struct retro_variable *var = (const struct retro_variable*)data;
+            struct retro_core_option_input in;
 
             /* If core passes NULL to the callback, return
              * value indicates whether callback is supported */
@@ -1552,20 +1553,36 @@ bool runloop_environment_cb(unsigned cmd, void *data)
                return false;
             }
 
-            /* Check whether value is valid */
-            if (!core_option_manager_get_val_idx(runloop_st->core_options,
-                  opt_idx, var->value, &val_idx))
+            /* Typed options: validate freeform string.
+             * List options: value must match a defined choice. */
+            if (core_option_manager_get_input(runloop_st->core_options,
+                     opt_idx, &in))
             {
-               RARCH_ERR("[Environ] SET_VARIABLE: %s - %s: %s\n",
-                     var->key, "Invalid value", var->value);
-               return false;
+               if (!core_option_manager_set_val_string(
+                        runloop_st->core_options,
+                        opt_idx, var->value, true))
+               {
+                  RARCH_ERR("[Environ] SET_VARIABLE: %s - %s: %s\n",
+                        var->key, "Invalid value", var->value);
+                  return false;
+               }
             }
+            else
+            {
+               if (!core_option_manager_get_val_idx(runloop_st->core_options,
+                     opt_idx, var->value, &val_idx))
+               {
+                  RARCH_ERR("[Environ] SET_VARIABLE: %s - %s: %s\n",
+                        var->key, "Invalid value", var->value);
+                  return false;
+               }
 
-            /* Update option value if core-requested value
-             * is not currently set */
-            if (val_idx != runloop_st->core_options->opts[opt_idx].index)
-               core_option_manager_set_val(runloop_st->core_options,
-                     opt_idx, val_idx, true);
+               /* Update option value if core-requested value
+                * is not currently set */
+               if (val_idx != runloop_st->core_options->opts[opt_idx].index)
+                  core_option_manager_set_val(runloop_st->core_options,
+                        opt_idx, val_idx, true);
+            }
 
             RARCH_DBG("[Environ] SET_VARIABLE: %s = \"%s\"\n",
                   var->key, var->value);
@@ -1799,7 +1816,6 @@ bool runloop_environment_cb(unsigned cmd, void *data)
 #ifdef DEBUG
          RARCH_DBG("[Environ] SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK.\n");
 #endif
-
          {
             const struct retro_core_options_update_display_callback
                   *update_display_callback =
@@ -1813,6 +1829,26 @@ bool runloop_environment_cb(unsigned cmd, void *data)
                runloop_st->core_options_callback.update_display = NULL;
          }
          break;
+
+      case RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS:
+         {
+            const struct retro_core_option_input *inputs =
+                  (const struct retro_core_option_input *)data;
+
+            /* NULL probes support without applying descriptors. */
+            if (!inputs)
+               return true;
+
+            if (!runloop_st->core_options)
+            {
+               RARCH_ERR("[Environ] SET_CORE_OPTION_INPUTS: no core options registered.\n");
+               return false;
+            }
+
+            core_option_manager_set_inputs(runloop_st->core_options, inputs);
+            RARCH_LOG("[Environ] SET_CORE_OPTION_INPUTS.\n");
+            return true;
+         }
 
       case RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION:
          RARCH_DBG("[Environ] GET_MESSAGE_INTERFACE_VERSION.\n");

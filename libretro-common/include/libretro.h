@@ -2389,8 +2389,12 @@ enum retro_mod
  * it will be reflected in the frontend
  * and \ref RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE will return \c true.
  * \ref retro_variable::key must match
- * a \ref RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2 "previously-set core option",
- * and \ref retro_variable::value must match one of its defined values.
+ * a \ref RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2 "previously-set core option".
+ * For ordinary list options, \ref retro_variable::value must match one of
+ * its defined values. For options that also have a
+ * \ref RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS "typed input descriptor",
+ * \c value must instead pass the descriptor's validation rules
+ * (it need not appear in the option's \c values array).
  *
  * Possible use cases include:
  *
@@ -2411,6 +2415,7 @@ enum retro_mod
  * or don't match a previously set option.
  *
  * @see RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2
+ * @see RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS
  * @see RETRO_ENVIRONMENT_GET_VARIABLE
  * @see RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE
  */
@@ -2870,6 +2875,47 @@ enum retro_mod
  * and roughly what mid-range HDR displays achieve.
  */
 #define RETRO_ENVIRONMENT_GET_HDR_MAX_NITS (92 | RETRO_ENVIRONMENT_EXPERIMENTAL)
+
+/**
+ * Registers optional typed freeform input descriptors for core options
+ * that were previously defined with
+ * \ref RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2
+ * (or its v1 / intl equivalents).
+ *
+ * Core options remain string-valued on the wire
+ * (\c GET_VARIABLE / \c SET_VARIABLE / \c *.opt files).
+ * This callback tells the frontend how to present and validate
+ * freeform values (integers, floats, IPv4 addresses, dates, etc.)
+ * so cores are not forced to enumerate every legal choice
+ * in a \c values array capped at
+ * \ref RETRO_NUM_CORE_OPTION_VALUES_MAX.
+ *
+ * This does \em not bump
+ * \ref RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION;
+ * support is detected by probing this environment call with
+ * \c data == \c NULL. Old frontends return \c false and cores
+ * should fall back to discrete \c values lists.
+ *
+ * Call after \c SET_CORE_OPTIONS / \c SET_CORE_OPTIONS_V2 /
+ * \c SET_CORE_OPTIONS_V2_INTL (or their intl variants).
+ * The \c values array on each option definition remains required
+ * (at least a default); on supporting frontends, extra entries
+ * become presets. On old frontends they remain the only choices.
+ *
+ * @param[in] data <tt>const struct retro_core_option_input *</tt>.
+ * NULL-terminated array of input descriptors.
+ * May be \c NULL, in which case the frontend returns \c true
+ * solely to indicate that typed inputs are supported.
+ * The frontend must maintain its own copy of this object,
+ * including all strings.
+ * @return \c true if the frontend understands typed core option inputs,
+ * even when \c data is \c NULL.
+ *
+ * @see retro_core_option_input
+ * @see RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2
+ * @see RETRO_ENVIRONMENT_SET_VARIABLE
+ */
+#define RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS 93
 
 /**
  * Result of \c RETRO_ENVIRONMENT_GET_MEMORY_STATUS.
@@ -7262,6 +7308,102 @@ struct retro_core_options_update_display_callback
     * Set by the core.
     */
    retro_core_options_update_display_callback_t callback;
+};
+
+/**
+ * Maximum serialized length (bytes, excluding NUL) for a typed core option value.
+ *
+ * @see retro_core_option_input
+ * @see RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS
+ */
+#define RETRO_CORE_OPTION_INPUT_VALUE_MAX 256
+
+/**
+ * Maximum length (bytes, excluding NUL) of a CUSTOM pattern string.
+ *
+ * @see retro_core_option_input
+ * @see RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS
+ */
+#define RETRO_CORE_OPTION_INPUT_PATTERN_MAX 64
+
+/**
+ * Input presentation / validation kind for a typed core option.
+ *
+ * Values remain strings; the frontend uses this enum to choose
+ * an appropriate editor (stepper, keyboard layout) and to validate
+ * freeform input.
+ *
+ * @see retro_core_option_input
+ * @see RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS
+ */
+enum retro_core_option_input_type
+{
+   RETRO_CORE_OPTION_INPUT_INT = 0,
+   RETRO_CORE_OPTION_INPUT_UINT,
+   RETRO_CORE_OPTION_INPUT_FLOAT,
+   RETRO_CORE_OPTION_INPUT_STRING,
+   RETRO_CORE_OPTION_INPUT_IPV4,
+   RETRO_CORE_OPTION_INPUT_DATE,    /**< ISO 8601 calendar date: YYYY-MM-DD */
+   RETRO_CORE_OPTION_INPUT_CUSTOM
+};
+
+/**
+ * Optional typed freeform input descriptor for a core option.
+ *
+ * Matched to an existing option by \c key after
+ * \ref RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2.
+ * Flat (no union) so cores can use C89 static initializers.
+ *
+ * For \c CUSTOM, \c pattern is a possessive piecewise matcher
+ * (not PCRE): concatenation of literals and one charset class
+ * \c [...] with optional \c ^ negate and ranges, plus quantifiers
+ * \c ? \c * \c + \c {n} \c {n,m}. Escapes: \c \\ \c \[ \c \].
+ * Rejected: alternation, groups, backrefs, lookaheads, wildcard \c .
+ * Hard caps: pattern length \ref RETRO_CORE_OPTION_INPUT_PATTERN_MAX,
+ * value length \ref RETRO_CORE_OPTION_INPUT_VALUE_MAX, at most 16 atoms.
+ *
+ * @see RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS
+ */
+struct retro_core_option_input
+{
+   /** Must match a previously registered option key. */
+   const char *key;
+
+   enum retro_core_option_input_type type;
+
+   /** Inclusive lower bound for INT/UINT/FLOAT. Unused otherwise (set 0). */
+   double min;
+
+   /** Inclusive upper bound for INT/UINT/FLOAT. Unused otherwise (set 0). */
+   double max;
+
+   /**
+    * Step for INT/UINT/FLOAT left/right adjustment.
+    * If 0, the frontend uses 1 for integers or \c 10^-decimals for floats.
+    */
+   double step;
+
+   /** Digits after the decimal for FLOAT display/validation. */
+   unsigned decimals;
+
+   /** Minimum string length for STRING/CUSTOM. */
+   unsigned min_length;
+
+   /**
+    * Maximum string length for STRING/CUSTOM.
+    * 0 means \ref RETRO_CORE_OPTION_INPUT_VALUE_MAX.
+    * Always clamped to that maximum.
+    */
+   unsigned max_length;
+
+   /**
+    * Allowed characters for STRING.
+    * NULL means printable UTF-8 (reject ASCII controls unless listed).
+    */
+   const char *allowed_chars;
+
+   /** CUSTOM pattern string; ignored for other types. */
+   const char *pattern;
 };
 
 /** @} */

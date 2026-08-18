@@ -4605,6 +4605,22 @@ static int action_ok_audio_run(const char *path,
 #endif
 }
 
+static void menu_input_st_string_cb_core_option(void *userdata, const char *str)
+{
+   core_option_manager_t *coreopts = NULL;
+   struct menu_state *menu_st      = menu_state_get_ptr();
+   unsigned option_index           = menu_st->input_dialog_kb_idx;
+
+   if (str && *str)
+   {
+      if (retroarch_ctl(RARCH_CTL_CORE_OPTIONS_LIST_GET, &coreopts) && coreopts
+            && option_index < coreopts->size)
+         core_option_manager_set_val_string(coreopts, option_index, str, true);
+   }
+
+   menu_input_dialog_end();
+}
+
 int action_ok_core_option_dropdown_list(const char *path,
       const char *label, unsigned type, size_t idx, size_t entry_idx)
 {
@@ -4616,6 +4632,7 @@ int action_ok_core_option_dropdown_list(const char *path,
    const char *value_label_0       = NULL;
    const char *value_label_1       = NULL;
    size_t option_index             = type - MENU_SETTINGS_CORE_OPTION_START;
+   struct retro_core_option_input in;
 
    option_lbl_str[0]               = '\0';
 
@@ -4631,11 +4648,35 @@ int action_ok_core_option_dropdown_list(const char *path,
        (option_index >= coreopts->size))
       goto push_dropdown_list;
 
-   /* > Get current option, and check whether
-    *   it has exactly 2 values (i.e. on/off) */
    option = (struct core_option*)&coreopts->opts[option_index];
 
+   /* Typed freeform string-like options open the OSK. */
+   if (option && option->has_input
+         && core_option_manager_get_input(coreopts, option_index, &in)
+         && (in.type == RETRO_CORE_OPTION_INPUT_STRING
+            || in.type == RETRO_CORE_OPTION_INPUT_IPV4
+            || in.type == RETRO_CORE_OPTION_INPUT_DATE
+            || in.type == RETRO_CORE_OPTION_INPUT_CUSTOM))
+   {
+      menu_input_ctx_line_t line;
+
+      line.label         = option->desc ? option->desc : option->key;
+      line.label_setting = option->key;
+      line.type          = type;
+      line.idx           = (unsigned)option_index;
+      line.cb            = menu_input_st_string_cb_core_option;
+
+      if (!menu_input_dialog_start(&line))
+         return -1;
+      return 0;
+   }
+
+   /* > Get current option, and check whether
+    *   it has exactly 2 values (i.e. on/off).
+    *   Typed freeform options must not use this shortcut:
+    *   current may differ from the preset at index. */
    if (   (!option)
+       ||  option->has_input
        ||  (option->vals->size != 2)
        || ((option->index != 0)
        &&  (option->index != 1))
