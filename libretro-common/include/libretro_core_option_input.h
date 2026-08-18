@@ -6,6 +6,13 @@
  *
  * No heap allocation. No regex engine. Safe on hostile pattern/value data.
  *
+ * Built-in address types are sugar over named atoms:
+ *   IPV4 → {ipv4}, IPV6 → {ipv6}, HOSTNAME → {hostname},
+ *   ADDRESS → {hostname}|{ipv4}|{ipv6}
+ *
+ * CUSTOM may compose literals, classes, {atoms}, top-level |, and one
+ * trailing (...)? optional group.
+ *
  * @see retro_core_option_input
  * @see RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS
  */
@@ -24,7 +31,12 @@
 extern "C" {
 #endif
 
-#define RETRO_CORE_OPTION_INPUT_ATOMS_MAX 16
+#define RETRO_CORE_OPTION_INPUT_ATOMS_MAX     16
+#define RETRO_CORE_OPTION_INPUT_ALTS_MAX       8
+#define RETRO_CORE_OPTION_INPUT_HOSTNAME_MAX 253
+#define RETRO_CORE_OPTION_INPUT_IPV6_MAX      45
+#define RETRO_CORE_OPTION_INPUT_IPV4_MAX      15
+#define RETRO_CORE_OPTION_INPUT_PORT_MAX       5
 
 /* ---- internal helpers -------------------------------------------------- */
 
@@ -68,7 +80,6 @@ static INLINE bool retro_core_option_input_parse_int(
    if (!value || !*value || !out)
       return false;
 
-   /* Optional leading '-', then digits. No '+', no whitespace. */
    if (*value == '-')
    {
       if (!isdigit((unsigned char)value[1]))
@@ -94,11 +105,10 @@ static INLINE bool retro_core_option_input_parse_uint(
    if (!value || !*value || !out)
       return false;
 
-   /* No signs, no octal/hex prefixes. */
    if (!isdigit((unsigned char)*value))
       return false;
    if (value[0] == '0' && value[1] != '\0')
-      return false; /* reject leading zeros except bare "0" */
+      return false;
 
    v = strtoul(value, &end, 10);
    if (!end || end == value || *end != '\0')
@@ -114,8 +124,7 @@ static INLINE bool retro_core_option_input_parse_float(
    char *end = NULL;
    double v;
    const char *p;
-   unsigned frac = 0;
-   bool saw_dot  = false;
+   bool saw_dot = false;
 
    if (!value || !*value || !out)
       return false;
@@ -137,8 +146,6 @@ static INLINE bool retro_core_option_input_parse_float(
       }
       if (!isdigit((unsigned char)*p))
          return false;
-      if (saw_dot)
-         frac++;
    }
 
    v = strtod(value, &end);
@@ -146,8 +153,6 @@ static INLINE bool retro_core_option_input_parse_float(
       return false;
 
    *out = v;
-   /* Caller checks decimals separately when needed. */
-   (void)frac;
    return true;
 }
 
@@ -181,6 +186,8 @@ static INLINE bool retro_core_option_input_near_step(
    return fabs(value - snapped) <= (step * 1e-6 + 1e-9);
 }
 
+/* ---- address atoms ----------------------------------------------------- */
+
 static INLINE bool retro_core_option_input_validate_ipv4(const char *value)
 {
    unsigned i;
@@ -204,11 +211,10 @@ static INLINE bool retro_core_option_input_validate_ipv4(const char *value)
       if (!isdigit((unsigned char)*p))
          return false;
 
-      start  = p;
-      octet  = 0;
+      start = p;
+      octet = 0;
       while (isdigit((unsigned char)*p))
       {
-         /* No leading zeros except single 0. */
          if (p > start && *start == '0')
             return false;
          octet = octet * 10u + (unsigned)(*p - '0');
@@ -223,6 +229,171 @@ static INLINE bool retro_core_option_input_validate_ipv4(const char *value)
    }
 
    return *p == '\0';
+}
+
+/**
+ * Strict IPv6 (RFC 4291 textual form without zone id or IPv4-mapped tail).
+ * Accepts full and compressed (::) forms. Rejects '%', '.', and empty.
+ */
+static INLINE bool retro_core_option_input_validate_ipv6(const char *value)
+{
+   const char *p;
+   int groups          = 0;
+   int compressed      = 0; /* 1 if :: seen */
+   int after_compress  = 0;
+   const char *hextet;
+
+   if (!value || !*value)
+      return false;
+
+   /* Reject IPv4-mapped / zone id early. */
+   if (strchr(value, '.') || strchr(value, '%'))
+      return false;
+
+   if (strlen(value) > RETRO_CORE_OPTION_INPUT_IPV6_MAX)
+      return false;
+
+   p = value;
+
+   /* Leading :: */
+   if (p[0] == ':' && p[1] == ':')
+   {
+      compressed = 1;
+      p         += 2;
+      if (!*p)
+         return true; /* "::" alone = all zeros */
+   }
+   else if (*p == ':')
+      return false; /* single leading colon */
+
+   while (*p)
+   {
+      hextet = p;
+      if (!isxdigit((unsigned char)*p))
+         return false;
+
+      while (isxdigit((unsigned char)*p))
+      {
+         p++;
+         if ((size_t)(p - hextet) > 4)
+            return false;
+      }
+
+      groups++;
+      if (compressed)
+         after_compress++;
+
+      if (!*p)
+         break;
+
+      if (*p != ':')
+         return false;
+      p++;
+
+      if (*p == ':')
+      {
+         if (compressed)
+            return false;
+         compressed = 1;
+         p++;
+         if (!*p)
+            break; /* trailing :: */
+      }
+      else if (!*p)
+         return false; /* trailing single colon */
+   }
+
+   if (compressed)
+   {
+      /* At most 7 explicit groups when compressed. */
+      if (groups > 7)
+         return false;
+   }
+   else
+   {
+      if (groups != 8)
+         return false;
+   }
+
+   (void)after_compress;
+   return groups >= 1 || compressed;
+}
+
+static INLINE bool retro_core_option_input_hostname_label_ok(
+      const char *start, const char *end)
+{
+   size_t len = (size_t)(end - start);
+   const char *q;
+
+   if (len < 1 || len > 63)
+      return false;
+   if (start[0] == '-' || end[-1] == '-')
+      return false;
+
+   for (q = start; q < end; q++)
+   {
+      unsigned char c = (unsigned char)*q;
+      if (!(isalnum(c) || c == '-'))
+         return false;
+   }
+   return true;
+}
+
+static INLINE bool retro_core_option_input_validate_hostname(const char *value)
+{
+   const char *p;
+   const char *label;
+   size_t total;
+
+   if (!value || !*value)
+      return false;
+
+   total = strlen(value);
+   if (total > RETRO_CORE_OPTION_INPUT_HOSTNAME_MAX)
+      return false;
+
+   /* No scheme, path, spaces, underscores. */
+   if (strchr(value, '/') || strchr(value, ':') || strchr(value, ' ')
+         || strchr(value, '_') || strchr(value, '@'))
+      return false;
+
+   if (value[0] == '.' || value[total - 1] == '.')
+      return false;
+
+   p     = value;
+   label = p;
+   while (*p)
+   {
+      if (*p == '.')
+      {
+         if (!retro_core_option_input_hostname_label_ok(label, p))
+            return false;
+         p++;
+         label = p;
+         if (!*p)
+            return false;
+         continue;
+      }
+      p++;
+   }
+
+   return retro_core_option_input_hostname_label_ok(label, p);
+}
+
+static INLINE bool retro_core_option_input_validate_port(const char *value)
+{
+   unsigned long uv;
+
+   if (!retro_core_option_input_parse_uint(value, &uv))
+      return false;
+   return uv >= 1 && uv <= 65535;
+}
+
+static INLINE bool retro_core_option_input_validate_address(const char *value)
+{
+   return retro_core_option_input_validate_hostname(value)
+         || retro_core_option_input_validate_ipv4(value)
+         || retro_core_option_input_validate_ipv6(value);
 }
 
 static INLINE bool retro_core_option_input_is_leap(int year)
@@ -240,7 +411,6 @@ static INLINE bool retro_core_option_input_validate_date(const char *value)
    if (!value)
       return false;
 
-   /* Strict YYYY-MM-DD, digits only in fields. */
    if (strlen(value) != 10)
       return false;
    if (value[4] != '-' || value[7] != '-')
@@ -272,7 +442,6 @@ static INLINE bool retro_core_option_input_char_allowed(
    if (allowed_chars)
       return strchr(allowed_chars, (int)c) != NULL;
 
-   /* Printable ASCII, or UTF-8 continuation / lead (>= 0x80). */
    if (c >= 0x20 && c != 0x7f)
       return true;
    if (c >= 0x80)
@@ -306,22 +475,81 @@ static INLINE bool retro_core_option_input_validate_string(
    return true;
 }
 
+/* ---- named-atom prefix match (longest valid) --------------------------- */
+
+static INLINE bool retro_core_option_input_atom_prefix(
+      const char *name, const char *s, size_t *consumed)
+{
+   size_t slen;
+   size_t max_try;
+   size_t n;
+   char buf[RETRO_CORE_OPTION_INPUT_HOSTNAME_MAX + 1];
+   bool (*fn)(const char *) = NULL;
+
+   if (!name || !s || !consumed)
+      return false;
+
+   slen = strlen(s);
+
+   if (!strcmp(name, "ipv4"))
+   {
+      fn      = retro_core_option_input_validate_ipv4;
+      max_try = RETRO_CORE_OPTION_INPUT_IPV4_MAX;
+   }
+   else if (!strcmp(name, "ipv6"))
+   {
+      fn      = retro_core_option_input_validate_ipv6;
+      max_try = RETRO_CORE_OPTION_INPUT_IPV6_MAX;
+   }
+   else if (!strcmp(name, "hostname"))
+   {
+      fn      = retro_core_option_input_validate_hostname;
+      max_try = RETRO_CORE_OPTION_INPUT_HOSTNAME_MAX;
+   }
+   else if (!strcmp(name, "port"))
+   {
+      fn      = retro_core_option_input_validate_port;
+      max_try = RETRO_CORE_OPTION_INPUT_PORT_MAX;
+   }
+   else
+      return false;
+
+   if (max_try > slen)
+      max_try = slen;
+
+   /* Longest valid prefix. */
+   for (n = max_try; n >= 1; n--)
+   {
+      memcpy(buf, s, n);
+      buf[n] = '\0';
+      if (fn(buf))
+      {
+         *consumed = n;
+         return true;
+      }
+   }
+
+   return false;
+}
+
 /* ---- CUSTOM possessive pattern matcher --------------------------------- */
 
 enum retro_core_option_input_atom_kind
 {
    RETRO_CORE_OPTION_INPUT_ATOM_LIT = 0,
-   RETRO_CORE_OPTION_INPUT_ATOM_CLASS
+   RETRO_CORE_OPTION_INPUT_ATOM_CLASS,
+   RETRO_CORE_OPTION_INPUT_ATOM_NAMED
 };
 
 struct retro_core_option_input_atom
 {
    enum retro_core_option_input_atom_kind kind;
    unsigned char lit;
-   unsigned char class_bits[32]; /* 256-bit charset */
+   unsigned char class_bits[32];
    bool negate;
    unsigned min_rep;
-   unsigned max_rep; /* UINT_MAX-ish capped; 0xFFFFFFFFu = unbounded * */
+   unsigned max_rep;
+   char name[16]; /* named atom */
 };
 
 static INLINE void retro_core_option_input_class_set(
@@ -368,13 +596,13 @@ static INLINE bool retro_core_option_input_parse_quant(
       *pp = p + 1;
       return true;
    }
-   if (*p == '{')
+   /* Quantifier {n} / {n,m} only when '{' is followed by a digit.
+    * '{name}' is a named atom for the next compile step. */
+   if (*p == '{' && isdigit((unsigned char)p[1]))
    {
       unsigned n = 0;
       unsigned m = 0;
       p++;
-      if (!isdigit((unsigned char)*p))
-         return false;
       while (isdigit((unsigned char)*p))
       {
          n = n * 10u + (unsigned)(*p - '0');
@@ -393,10 +621,7 @@ static INLINE bool retro_core_option_input_parse_quant(
          return false;
       p++;
       if (*p == '}')
-      {
-         /* {n,} unbounded — reject for safety (use * with care or {n,m}) */
          return false;
-      }
       if (!isdigit((unsigned char)*p))
          return false;
       while (isdigit((unsigned char)*p))
@@ -417,22 +642,22 @@ static INLINE bool retro_core_option_input_parse_quant(
    return true;
 }
 
-static INLINE bool retro_core_option_input_compile_pattern(
-      const char *pattern,
+static INLINE bool retro_core_option_input_compile_sequence(
+      const char *pattern, size_t plen,
       struct retro_core_option_input_atom *atoms,
       unsigned *atom_count)
 {
    const char *p;
+   const char *end;
    unsigned count = 0;
 
    if (!pattern || !atoms || !atom_count)
       return false;
 
-   if (strlen(pattern) > RETRO_CORE_OPTION_INPUT_PATTERN_MAX)
-      return false;
+   p   = pattern;
+   end = pattern + plen;
 
-   p = pattern;
-   while (*p)
+   while (p < end)
    {
       struct retro_core_option_input_atom *a;
 
@@ -444,27 +669,51 @@ static INLINE bool retro_core_option_input_compile_pattern(
       a->min_rep = 1;
       a->max_rep = 1;
 
-      if (*p == '|')
-         return false;
-      if (*p == '(' || *p == ')')
+      if (*p == '|' || *p == '(' || *p == ')')
          return false;
       if (*p == '.')
-      {
-         /* Wildcard '.' is rejected; use a class or literal '\.'. */
-         return false;
-      }
+         return false; /* use \. for literal dot */
 
-      if (*p == '[')
+      if (*p == '{')
       {
-         bool first = true;
+         const char *nstart;
+         size_t nlen;
+
+         p++;
+         nstart = p;
+         while (p < end && *p != '}')
+         {
+            if (!isalnum((unsigned char)*p) && *p != '_')
+               return false;
+            p++;
+         }
+         if (p >= end || *p != '}')
+            return false;
+         nlen = (size_t)(p - nstart);
+         if (nlen == 0 || nlen >= sizeof(a->name))
+            return false;
+         memcpy(a->name, nstart, nlen);
+         a->name[nlen] = '\0';
+         if (strcmp(a->name, "ipv4") && strcmp(a->name, "ipv6")
+               && strcmp(a->name, "hostname") && strcmp(a->name, "port"))
+            return false;
+         a->kind = RETRO_CORE_OPTION_INPUT_ATOM_NAMED;
+         p++;
+         /* Named atoms are not quantified in v1. */
+         if (p < end && (*p == '?' || *p == '*' || *p == '+'
+                  || (*p == '{' && isdigit((unsigned char)p[1]))))
+            return false;
+      }
+      else if (*p == '[')
+      {
          p++;
          a->kind = RETRO_CORE_OPTION_INPUT_ATOM_CLASS;
-         if (*p == '^')
+         if (p < end && *p == '^')
          {
             a->negate = true;
             p++;
          }
-         while (*p && *p != ']')
+         while (p < end && *p != ']')
          {
             unsigned char c1;
             unsigned char c2;
@@ -472,20 +721,20 @@ static INLINE bool retro_core_option_input_compile_pattern(
             if (*p == '\\')
             {
                p++;
-               if (!*p)
+               if (p >= end)
                   return false;
                c1 = (unsigned char)*p++;
             }
             else
                c1 = (unsigned char)*p++;
 
-            if (*p == '-' && p[1] && p[1] != ']')
+            if (p < end && *p == '-' && (p + 1) < end && p[1] != ']')
             {
                p++;
                if (*p == '\\')
                {
                   p++;
-                  if (!*p)
+                  if (p >= end)
                      return false;
                   c2 = (unsigned char)*p++;
                }
@@ -503,13 +752,12 @@ static INLINE bool retro_core_option_input_compile_pattern(
             }
             else
                retro_core_option_input_class_set(a->class_bits, c1);
-
-            first = false;
-            (void)first;
          }
-         if (*p != ']')
+         if (p >= end || *p != ']')
             return false;
          p++;
+         if (!retro_core_option_input_parse_quant(&p, &a->min_rep, &a->max_rep))
+            return false;
       }
       else
       {
@@ -517,20 +765,19 @@ static INLINE bool retro_core_option_input_compile_pattern(
          if (*p == '\\')
          {
             p++;
-            if (!*p)
+            if (p >= end)
                return false;
-            /* Only \\ \[ \] are defined; other escapes take the next char. */
             a->lit = (unsigned char)*p++;
          }
-         else if (*p == ']' || *p == '{' || *p == '}' || *p == '?'
+         else if (*p == ']' || *p == '}' || *p == '?'
                || *p == '*' || *p == '+')
             return false;
          else
             a->lit = (unsigned char)*p++;
-      }
 
-      if (!retro_core_option_input_parse_quant(&p, &a->min_rep, &a->max_rep))
-         return false;
+         if (!retro_core_option_input_parse_quant(&p, &a->min_rep, &a->max_rep))
+            return false;
+      }
 
       count++;
    }
@@ -546,49 +793,228 @@ static INLINE bool retro_core_option_input_atom_match_one(
 
    if (a->kind == RETRO_CORE_OPTION_INPUT_ATOM_LIT)
       return a->lit == c;
+   if (a->kind != RETRO_CORE_OPTION_INPUT_ATOM_CLASS)
+      return false;
 
    in_class = retro_core_option_input_class_has(a->class_bits, c);
    return a->negate ? !in_class : in_class;
 }
 
+/**
+ * Match atom sequence against @value starting at @pos.
+ * On success sets *pos_out to the new offset. Returns false on failure.
+ */
+static INLINE bool retro_core_option_input_match_atoms(
+      const struct retro_core_option_input_atom *atoms,
+      unsigned atom_count,
+      const char *value,
+      size_t pos,
+      size_t *pos_out)
+{
+   unsigned ai;
+   size_t p = pos;
+   size_t vlen;
+
+   if (!atoms || !value || !pos_out)
+      return false;
+
+   vlen = strlen(value);
+
+   for (ai = 0; ai < atom_count; ai++)
+   {
+      const struct retro_core_option_input_atom *a = &atoms[ai];
+
+      if (a->kind == RETRO_CORE_OPTION_INPUT_ATOM_NAMED)
+      {
+         size_t consumed = 0;
+
+         if (p > vlen)
+            return false;
+         if (!retro_core_option_input_atom_prefix(a->name, value + p, &consumed))
+            return false;
+         p += consumed;
+      }
+      else
+      {
+         unsigned matched = 0;
+
+         while (matched < a->max_rep && p < vlen
+               && retro_core_option_input_atom_match_one(a,
+                     (unsigned char)value[p]))
+         {
+            p++;
+            matched++;
+         }
+
+         if (matched < a->min_rep)
+            return false;
+      }
+   }
+
+   *pos_out = p;
+   return true;
+}
+
+/**
+ * Match one alternative: MAIN or MAIN(OPT)?.
+ * Pattern slice is [start, end).
+ */
+static INLINE bool retro_core_option_input_match_alternative(
+      const char *alt, size_t alt_len, const char *value)
+{
+   const char *opt_open  = NULL;
+   const char *main_end;
+   size_t main_len;
+   size_t opt_len = 0;
+   struct retro_core_option_input_atom main_atoms[RETRO_CORE_OPTION_INPUT_ATOMS_MAX];
+   struct retro_core_option_input_atom opt_atoms[RETRO_CORE_OPTION_INPUT_ATOMS_MAX];
+   unsigned main_count = 0;
+   unsigned opt_count  = 0;
+   size_t pos          = 0;
+   size_t pos2         = 0;
+   size_t vlen;
+
+   if (!alt || !value || alt_len == 0)
+      return false;
+
+   vlen = strlen(value);
+
+   /* Detect single trailing (…)? optional group. */
+   if (alt_len >= 4 && alt[alt_len - 1] == '?' && alt[alt_len - 2] == ')')
+   {
+      const char *q;
+      int depth = 0;
+
+      for (q = alt + (alt_len - 2); q >= alt; q--)
+      {
+         if (*q == ')')
+            depth++;
+         else if (*q == '(')
+         {
+            depth--;
+            if (depth == 0)
+            {
+               opt_open = q;
+               break;
+            }
+         }
+      }
+
+      if (!opt_open || depth != 0)
+         return false;
+      /* Only allow the optional group at the very end. */
+      if (opt_open + 1 >= alt + alt_len - 2)
+         return false;
+   }
+
+   if (opt_open)
+   {
+      main_end = opt_open;
+      main_len = (size_t)(main_end - alt);
+      opt_len  = (size_t)((alt + alt_len - 2) - (opt_open + 1));
+   }
+   else
+   {
+      main_end = alt + alt_len;
+      main_len = alt_len;
+   }
+
+   if (main_len == 0)
+      return false;
+
+   if (!retro_core_option_input_compile_sequence(alt, main_len,
+            main_atoms, &main_count))
+      return false;
+
+   if (!retro_core_option_input_match_atoms(main_atoms, main_count,
+            value, 0, &pos))
+      return false;
+
+   if (opt_open)
+   {
+      if (opt_len == 0)
+         return false;
+      if (!retro_core_option_input_compile_sequence(opt_open + 1, opt_len,
+               opt_atoms, &opt_count))
+         return false;
+
+      /* Possessive: try optional first when remaining input exists. */
+      if (pos < vlen)
+      {
+         if (retro_core_option_input_match_atoms(opt_atoms, opt_count,
+                  value, pos, &pos2) && pos2 == vlen)
+            return true;
+         return false;
+      }
+
+      return pos == vlen;
+   }
+
+   return pos == vlen;
+}
+
 static INLINE bool retro_core_option_input_match_pattern(
       const char *pattern, const char *value)
 {
-   struct retro_core_option_input_atom atoms[RETRO_CORE_OPTION_INPUT_ATOMS_MAX];
-   unsigned atom_count = 0;
-   unsigned ai;
    const char *p;
+   const char *alt_start;
+   size_t plen;
    size_t vlen;
+   unsigned alts = 0;
 
    if (!pattern || !value)
       return false;
 
+   plen = strlen(pattern);
    vlen = strlen(value);
+   if (plen > RETRO_CORE_OPTION_INPUT_PATTERN_MAX)
+      return false;
    if (vlen > RETRO_CORE_OPTION_INPUT_VALUE_MAX)
       return false;
 
-   if (!retro_core_option_input_compile_pattern(pattern, atoms, &atom_count))
-      return false;
-
-   p = value;
-   for (ai = 0; ai < atom_count; ai++)
+   /* Split on top-level '|' (not inside [] or {}). */
+   p         = pattern;
+   alt_start = p;
+   while (1)
    {
-      struct retro_core_option_input_atom *a = &atoms[ai];
-      unsigned matched = 0;
+      int in_class = 0;
+      int in_brace = 0;
 
-      /* Possessive: take as many as max_rep allows. */
-      while (matched < a->max_rep && *p
-            && retro_core_option_input_atom_match_one(a, (unsigned char)*p))
+      while (*p)
       {
+         if (*p == '\\' && p[1])
+         {
+            p += 2;
+            continue;
+         }
+         if (!in_brace && *p == '[')
+            in_class = 1;
+         else if (in_class && *p == ']')
+            in_class = 0;
+         else if (!in_class && *p == '{')
+            in_brace = 1;
+         else if (in_brace && *p == '}')
+            in_brace = 0;
+         else if (!in_class && !in_brace && *p == '|')
+            break;
          p++;
-         matched++;
       }
 
-      if (matched < a->min_rep)
+      if (alts >= RETRO_CORE_OPTION_INPUT_ALTS_MAX)
          return false;
+
+      if (retro_core_option_input_match_alternative(alt_start,
+               (size_t)(p - alt_start), value))
+         return true;
+
+      alts++;
+      if (!*p)
+         break;
+      p++;
+      alt_start = p;
    }
 
-   return *p == '\0';
+   return false;
 }
 
 static INLINE bool retro_core_option_input_validate_custom(
@@ -664,6 +1090,15 @@ static INLINE bool retro_core_option_input_validate(
 
       case RETRO_CORE_OPTION_INPUT_IPV4:
          return retro_core_option_input_validate_ipv4(value);
+
+      case RETRO_CORE_OPTION_INPUT_IPV6:
+         return retro_core_option_input_validate_ipv6(value);
+
+      case RETRO_CORE_OPTION_INPUT_HOSTNAME:
+         return retro_core_option_input_validate_hostname(value);
+
+      case RETRO_CORE_OPTION_INPUT_ADDRESS:
+         return retro_core_option_input_validate_address(value);
 
       case RETRO_CORE_OPTION_INPUT_DATE:
          return retro_core_option_input_validate_date(value);

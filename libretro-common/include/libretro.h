@@ -7343,6 +7343,9 @@ enum retro_core_option_input_type
    RETRO_CORE_OPTION_INPUT_FLOAT,
    RETRO_CORE_OPTION_INPUT_STRING,
    RETRO_CORE_OPTION_INPUT_IPV4,
+   RETRO_CORE_OPTION_INPUT_IPV6,
+   RETRO_CORE_OPTION_INPUT_HOSTNAME,
+   RETRO_CORE_OPTION_INPUT_ADDRESS, /**< hostname | IPv4 | IPv6 (host only) */
    RETRO_CORE_OPTION_INPUT_DATE,    /**< ISO 8601 calendar date: YYYY-MM-DD */
    RETRO_CORE_OPTION_INPUT_CUSTOM
 };
@@ -7354,13 +7357,23 @@ enum retro_core_option_input_type
  * \ref RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2.
  * Flat (no union) so cores can use C89 static initializers.
  *
+ * Built-in address types are sugar over named validator atoms:
+ * \li \c IPV4 → \c {ipv4}
+ * \li \c IPV6 → \c {ipv6}
+ * \li \c HOSTNAME → \c {hostname}
+ * \li \c ADDRESS → \c {hostname}|{ipv4}|{ipv6}
+ *
  * For \c CUSTOM, \c pattern is a possessive piecewise matcher
- * (not PCRE): concatenation of literals and one charset class
- * \c [...] with optional \c ^ negate and ranges, plus quantifiers
- * \c ? \c * \c + \c {n} \c {n,m}. Escapes: \c \\ \c \[ \c \].
- * Rejected: alternation, groups, backrefs, lookaheads, wildcard \c .
+ * (not PCRE): literals, charset classes \c [...] with optional
+ * \c ^ negate and ranges, quantifiers \c ? \c * \c + \c {n} \c {n,m},
+ * named atoms \c {ipv4} \c {ipv6} \c {hostname} \c {port},
+ * top-level alternation \c |, and one trailing optional group
+ * \c (...)?. Escapes: \c \\ \c \[ \c \].
  * Hard caps: pattern length \ref RETRO_CORE_OPTION_INPUT_PATTERN_MAX,
- * value length \ref RETRO_CORE_OPTION_INPUT_VALUE_MAX, at most 16 atoms.
+ * value length \ref RETRO_CORE_OPTION_INPUT_VALUE_MAX, at most 16 atoms
+ * per alternative.
+ * Note: optional \c :{port} after bare IPv6 is ambiguous; prefer a
+ * separate UINT port option or host-only \c ADDRESS.
  *
  * @see RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS
  */

@@ -13,9 +13,11 @@
  ********************************
  *
  * Demonstrates RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS:
- * freeform IP / port / float / custom pattern options with
- * a discrete-values fallback for older frontends.
+ * ADDRESS (hostname|ipv4|ipv6), UINT port, float, CUSTOM hex,
+ * and CUSTOM host(:port)? composition — plus a discrete fallback
+ * for older frontends.
  *
+ * - 2.2: ADDRESS / IPV6 / HOSTNAME + composable {atom} patterns
  * - 2.1: Typed freeform inputs via SET_CORE_OPTION_INPUTS
  * - 2.0: Core options v2 categories
  */
@@ -40,15 +42,16 @@ struct retro_core_option_v2_category option_cats_typed[] = {
 
 struct retro_core_option_v2_definition option_defs_typed[] = {
    {
-      "mycore_server_ip",
-      "Network > Server IP",
-      "Server IP",
-      "IPv4 address of the remote server.",
+      "mycore_server_host",
+      "Network > Server Host",
+      "Server Host",
+      "Hostname, IPv4, or IPv6 of the remote server (no port).",
       NULL,
       "network",
       {
-         { "127.0.0.1", "localhost" },
-         { "192.168.1.1", NULL },
+         { "127.0.0.1", "localhost IPv4" },
+         { "localhost", NULL },
+         { "::1", "localhost IPv6" },
          { NULL, NULL },
       },
       "127.0.0.1"
@@ -66,6 +69,20 @@ struct retro_core_option_v2_definition option_defs_typed[] = {
          { NULL, NULL },
       },
       "26760"
+   },
+   {
+      "mycore_endpoint",
+      "Network > Endpoint",
+      "Endpoint",
+      "Hostname or IPv4 with optional :port (CUSTOM composition).",
+      NULL,
+      "network",
+      {
+         { "127.0.0.1:26760", NULL },
+         { "example.com", NULL },
+         { NULL, NULL },
+      },
+      "127.0.0.1:26760"
    },
    {
       "mycore_gain",
@@ -105,14 +122,20 @@ struct retro_core_options_v2 options_typed = {
 
 static const struct retro_core_option_input option_inputs[] = {
    {
-      "mycore_server_ip",
-      RETRO_CORE_OPTION_INPUT_IPV4,
+      "mycore_server_host",
+      RETRO_CORE_OPTION_INPUT_ADDRESS,
       0, 0, 0, 0, 0, 0, NULL, NULL
    },
    {
       "mycore_server_port",
       RETRO_CORE_OPTION_INPUT_UINT,
       1.0, 65535.0, 1.0, 0, 0, 0, NULL, NULL
+   },
+   {
+      "mycore_endpoint",
+      RETRO_CORE_OPTION_INPUT_CUSTOM,
+      0, 0, 0, 0, 1, 64, NULL,
+      "{hostname}(:{port})?|{ipv4}(:{port})?"
    },
    {
       "mycore_gain",

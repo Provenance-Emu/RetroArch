@@ -182,15 +182,19 @@ static void test_custom_pattern(void)
          retro_core_option_input_validate(&in, "GG"));
 
    in.pattern = "abc|def";
-   expect_false("reject alternation",
+   expect_true("alt abc",
          retro_core_option_input_validate(&in, "abc"));
+   expect_true("alt def",
+         retro_core_option_input_validate(&in, "def"));
+   expect_false("alt neither",
+         retro_core_option_input_validate(&in, "ab"));
 
    in.pattern = ".*";
    expect_false("reject wildcard dot",
          retro_core_option_input_validate(&in, "a"));
 
    in.pattern = "(abc)";
-   expect_false("reject groups",
+   expect_false("reject bare groups",
          retro_core_option_input_validate(&in, "abc"));
 
    for (i = 0; i < RETRO_CORE_OPTION_INPUT_PATTERN_MAX + 4; i++)
@@ -209,6 +213,111 @@ static void test_custom_pattern(void)
          retro_core_option_input_validate(&in, "ID-042"));
    expect_false("lit+class ID-42",
          retro_core_option_input_validate(&in, "ID-42"));
+}
+
+static void test_ipv6(void)
+{
+   struct retro_core_option_input in;
+
+   memset(&in, 0, sizeof(in));
+   in.key  = "ip6";
+   in.type = RETRO_CORE_OPTION_INPUT_IPV6;
+
+   expect_true("ipv6 loopback",
+         retro_core_option_input_validate(&in, "::1"));
+   expect_true("ipv6 full",
+         retro_core_option_input_validate(&in,
+               "2001:0db8:85a3:0000:0000:8a2e:0370:7334"));
+   expect_true("ipv6 compressed",
+         retro_core_option_input_validate(&in, "2001:db8::1"));
+   expect_true("ipv6 all zeros",
+         retro_core_option_input_validate(&in, "::"));
+
+   expect_false("ipv6 mapped",
+         retro_core_option_input_validate(&in, "::ffff:192.0.2.1"));
+   expect_false("ipv6 zone",
+         retro_core_option_input_validate(&in, "fe80::1%eth0"));
+   expect_false("ipv4 as ipv6",
+         retro_core_option_input_validate(&in, "127.0.0.1"));
+   expect_false("ipv6 empty",
+         retro_core_option_input_validate(&in, ""));
+}
+
+static void test_hostname(void)
+{
+   struct retro_core_option_input in;
+
+   memset(&in, 0, sizeof(in));
+   in.key  = "host";
+   in.type = RETRO_CORE_OPTION_INPUT_HOSTNAME;
+
+   expect_true("hostname localhost",
+         retro_core_option_input_validate(&in, "localhost"));
+   expect_true("hostname example.com",
+         retro_core_option_input_validate(&in, "example.com"));
+   expect_true("hostname sub",
+         retro_core_option_input_validate(&in, "a.b-c.example"));
+
+   expect_false("hostname underscore",
+         retro_core_option_input_validate(&in, "foo_bar"));
+   expect_false("hostname scheme",
+         retro_core_option_input_validate(&in, "http://example.com"));
+   expect_false("hostname slash",
+         retro_core_option_input_validate(&in, "example.com/path"));
+   expect_false("hostname leading dash",
+         retro_core_option_input_validate(&in, "-bad.com"));
+   expect_false("hostname empty",
+         retro_core_option_input_validate(&in, ""));
+}
+
+static void test_address(void)
+{
+   struct retro_core_option_input in;
+
+   memset(&in, 0, sizeof(in));
+   in.key  = "addr";
+   in.type = RETRO_CORE_OPTION_INPUT_ADDRESS;
+
+   expect_true("address ipv4",
+         retro_core_option_input_validate(&in, "10.0.0.1"));
+   expect_true("address ipv6",
+         retro_core_option_input_validate(&in, "2001:db8::2"));
+   expect_true("address hostname",
+         retro_core_option_input_validate(&in, "dsu.local"));
+   expect_false("address with port",
+         retro_core_option_input_validate(&in, "10.0.0.1:26760"));
+   expect_false("address empty",
+         retro_core_option_input_validate(&in, ""));
+}
+
+static void test_custom_compose(void)
+{
+   struct retro_core_option_input in;
+
+   memset(&in, 0, sizeof(in));
+   in.key        = "hostport";
+   in.type       = RETRO_CORE_OPTION_INPUT_CUSTOM;
+   in.min_length = 1;
+   in.max_length = 64;
+   /* Optional port on each alt — top-level (a|b) grouping is not in v1. */
+   in.pattern    = "{hostname}(:{port})?|{ipv4}(:{port})?";
+
+   expect_true("compose host",
+         retro_core_option_input_validate(&in, "example.com"));
+   expect_true("compose ipv4",
+         retro_core_option_input_validate(&in, "192.168.1.10"));
+   expect_true("compose ipv4:port",
+         retro_core_option_input_validate(&in, "192.168.1.10:26760"));
+   expect_true("compose host:port",
+         retro_core_option_input_validate(&in, "example.com:80"));
+   expect_false("compose bad port",
+         retro_core_option_input_validate(&in, "192.168.1.10:0"));
+   expect_false("compose ipv6 bare (not in pattern)",
+         retro_core_option_input_validate(&in, "2001:db8::1"));
+
+   in.pattern = "{hostname}|{ipv4}|{ipv6}";
+   expect_true("compose address-like ipv6",
+         retro_core_option_input_validate(&in, "2001:db8::1"));
 }
 
 static void test_string(void)
@@ -238,10 +347,14 @@ static void test_string(void)
 int main(void)
 {
    test_ipv4();
+   test_ipv6();
+   test_hostname();
+   test_address();
    test_date();
    test_float();
    test_uint_port();
    test_custom_pattern();
+   test_custom_compose();
    test_string();
 
    if (failures)

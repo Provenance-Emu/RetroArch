@@ -4655,6 +4655,9 @@ int action_ok_core_option_dropdown_list(const char *path,
          && core_option_manager_get_input(coreopts, option_index, &in)
          && (in.type == RETRO_CORE_OPTION_INPUT_STRING
             || in.type == RETRO_CORE_OPTION_INPUT_IPV4
+            || in.type == RETRO_CORE_OPTION_INPUT_IPV6
+            || in.type == RETRO_CORE_OPTION_INPUT_HOSTNAME
+            || in.type == RETRO_CORE_OPTION_INPUT_ADDRESS
             || in.type == RETRO_CORE_OPTION_INPUT_DATE
             || in.type == RETRO_CORE_OPTION_INPUT_CUSTOM))
    {

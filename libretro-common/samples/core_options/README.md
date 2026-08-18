@@ -72,3 +72,12 @@ See `example_inputs/libretro_core_options.h`:
 4. If false, fall back to discrete lists / octet splits for older frontends.
 
 Validation helpers live in `libretro-common/include/libretro_core_option_input.h` (header-only, no regex engine).
+
+Built-in address types are sugar over named validator atoms:
+
+- `IPV4` → `{ipv4}`
+- `IPV6` → `{ipv6}`
+- `HOSTNAME` → `{hostname}`
+- `ADDRESS` → `{hostname}|{ipv4}|{ipv6}` (host only, no port)
+
+`CUSTOM` patterns may compose those atoms with literals, top-level `|`, and one trailing `(...)?` group, e.g. `{hostname}(:{port})?|{ipv4}(:{port})?`. There is no dedicated PORT/PROTOCOL enum type; `{port}` is composition-only. Prefer a separate UINT port option when pairing with IPv6 (bare `addr:port` is ambiguous).
