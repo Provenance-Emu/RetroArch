@@ -3465,6 +3465,15 @@ void input_overlay_set_scale_factor(
       input_overlay_parse_layout(current_overlay,
             layout_desc, display_aspect_ratio, &overlay_layout);
       input_overlay_scale(current_overlay, &overlay_layout);
+
+      if (current_overlay == ol->active)
+         RARCH_DBG("[Overlay] Scale \"%s\" video=%ux%u aspect=%.4f "
+               "ol_aspect=%.4f x_scale=%.4f y_scale=%.4f\n",
+               current_overlay->name,
+               video_driver_width, video_driver_height,
+               display_aspect_ratio,
+               current_overlay->aspect_ratio,
+               overlay_layout.x_scale, overlay_layout.y_scale);
    }
 
    input_overlay_set_vertex_geom(ol);
@@ -3673,6 +3682,10 @@ void input_overlay_auto_rotate_(
    if (!ol || !(ol->flags & INPUT_OVERLAY_ALIVE) || !input_overlay_enable)
       return;
 
+   /* Cannot pick landscape vs portrait from an unknown viewport. */
+   if (video_driver_width == 0 || video_driver_height == 0)
+      return;
+
    /* Get current screen orientation */
    if (video_driver_width > video_driver_height)
       screen_orientation = OVERLAY_ORIENTATION_LANDSCAPE;
@@ -3695,8 +3708,7 @@ void input_overlay_auto_rotate_(
    if (screen_orientation == active_overlay_orientation)
       return;
 
-   /* Attempt to find index of overlay corresponding
-    * to opposite orientation */
+   /* Prefer an overlay_next target on this page (rotate button). */
    for (i = 0; i < ol->active->size; i++)
    {
       overlay_desc_t *desc = &ol->active->descs[i];
@@ -3714,14 +3726,58 @@ void input_overlay_auto_rotate_(
 
          if (next_overlay_found)
          {
-            /* We have a valid target overlay
-             * > Trigger 'overly next' command event
-             * Note: tmp == false. This prevents CMD_EVENT_OVERLAY_NEXT
+            /* Note: tmp == false. This prevents CMD_EVENT_OVERLAY_NEXT
              * from calling input_overlay_auto_rotate_() again */
-            ol->next_index     = desc->next_index;
+            ol->next_index = desc->next_index;
             command_event(CMD_EVENT_OVERLAY_NEXT, &tmp);
-            break;
+            return;
          }
+      }
+   }
+
+   /* Some presets (Jaguar Named_Overlays) comment out the rotate
+    * next_target on the default landscape page.  Fall back to the
+    * sibling page by swapping landscape/portrait in the overlay name
+    * so first load still picks 3-button-portrait on a tall screen. */
+   {
+      const char *from = (active_overlay_orientation == OVERLAY_ORIENTATION_LANDSCAPE)
+            ? "landscape" : "portrait";
+      const char *to   = (screen_orientation == OVERLAY_ORIENTATION_LANDSCAPE)
+            ? "landscape" : "portrait";
+      const char *hit  = strstr(ol->active->name, from);
+      char want[64];
+
+      if (hit)
+      {
+         size_t prefix = (size_t)(hit - ol->active->name);
+
+         want[0] = '\0';
+         if (prefix >= sizeof(want))
+            prefix = sizeof(want) - 1;
+         memcpy(want, ol->active->name, prefix);
+         want[prefix] = '\0';
+         strlcat(want, to, sizeof(want));
+         strlcat(want, hit + strlen(from), sizeof(want));
+
+         for (i = 0; i < ol->size; i++)
+         {
+            if (!string_is_equal(ol->overlays[i].name, want))
+               continue;
+            ol->next_index = (unsigned)i;
+            command_event(CMD_EVENT_OVERLAY_NEXT, &tmp);
+            return;
+         }
+      }
+
+      for (i = 0; i < ol->size; i++)
+      {
+         if (!*ol->overlays[i].name)
+            continue;
+         if (!strstr(ol->overlays[i].name, to))
+            continue;
+         ol->next_index = (unsigned)i;
+         command_event(CMD_EVENT_OVERLAY_NEXT, &tmp);
+         return;
       }
    }
 }
@@ -6225,6 +6281,17 @@ static void input_overlay_enable_(bool enable)
 
       /* Load last-active overlay */
       input_overlay_load_active(input_st->overlay_visibility, ol, opacity);
+
+      /* Refresh the drawable size before the first scale.  Overlay
+       * load is async and often completes against a stale video_st
+       * (points-sized or pre-rotation).  SET_ASPECT_RATIO is
+       * synchronous even with video_threaded (poke waits). */
+      command_event(CMD_EVENT_VIDEO_SET_ASPECT_RATIO, NULL);
+
+      /* Forget the pre-overlay size so runloop treats the next
+       * frame as a size change if publish updated video_st. */
+      input_st->overlay_last_width  = 0;
+      input_st->overlay_last_height = 0;
 
       /* Adjust to current settings */
       command_event(CMD_EVENT_OVERLAY_SET_SCALE_FACTOR, NULL);

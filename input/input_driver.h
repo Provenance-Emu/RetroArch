@@ -603,6 +603,12 @@ typedef struct
 
    /* touch pointer indexes from previous poll */
    int old_touch_index_lut[OVERLAY_MAX_TOUCH];
+
+   /* Last video_st size used for overlay scale.  Zeroed when an
+    * overlay is enabled so the next runloop pass rescales if the
+    * first SET_SCALE_FACTOR ran against a stale drawable size. */
+   unsigned overlay_last_width;
+   unsigned overlay_last_height;
 #endif
    uint16_t flags;
    /* Read and written every poll; kept beside flags so the per-poll
