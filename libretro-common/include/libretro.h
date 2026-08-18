@@ -2885,7 +2885,7 @@ enum retro_mod
  * Core options remain string-valued on the wire
  * (\c GET_VARIABLE / \c SET_VARIABLE / \c *.opt files).
  * This callback tells the frontend how to present and validate
- * freeform values (integers, floats, IPv4 addresses, dates, etc.)
+ * freeform values (integers, floats, addresses, dates, etc.)
  * so cores are not forced to enumerate every legal choice
  * in a \c values array capped at
  * \ref RETRO_NUM_CORE_OPTION_VALUES_MAX.
@@ -7338,16 +7338,12 @@ struct retro_core_options_update_display_callback
  */
 enum retro_core_option_input_type
 {
-   RETRO_CORE_OPTION_INPUT_INT = 0,
-   RETRO_CORE_OPTION_INPUT_UINT,
-   RETRO_CORE_OPTION_INPUT_FLOAT,
-   RETRO_CORE_OPTION_INPUT_STRING,
-   RETRO_CORE_OPTION_INPUT_IPV4,
-   RETRO_CORE_OPTION_INPUT_IPV6,
-   RETRO_CORE_OPTION_INPUT_HOSTNAME,
-   RETRO_CORE_OPTION_INPUT_ADDRESS, /**< hostname | IPv4 | IPv6 (host only) */
-   RETRO_CORE_OPTION_INPUT_DATE,    /**< ISO 8601 calendar date: YYYY-MM-DD */
-   RETRO_CORE_OPTION_INPUT_CUSTOM
+   RETRO_CORE_OPTION_INPUT_INT = 0, /**< Signed integer; uses min/max/step. */
+   RETRO_CORE_OPTION_INPUT_UINT,    /**< Unsigned integer; uses min/max/step. */
+   RETRO_CORE_OPTION_INPUT_FLOAT,   /**< Float; uses min/max/step/decimals. */
+   RETRO_CORE_OPTION_INPUT_STRING,  /**< Free string; uses min/max_length, allowed_chars. */
+   RETRO_CORE_OPTION_INPUT_DATE,    /**< ISO 8601 calendar date: YYYY-MM-DD. */
+   RETRO_CORE_OPTION_INPUT_CUSTOM   /**< Pattern in \c pattern (atoms, classes, |, (...)?). */
 };
 
 /**
@@ -7357,25 +7353,26 @@ enum retro_core_option_input_type
  * \ref RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2.
  * Flat (no union) so cores can use C89 static initializers.
  *
- * Built-in address types are sugar over named validator atoms:
- * \li \c IPV4 → \c {ipv4}
- * \li \c IPV6 → \c {ipv6}
- * \li \c HOSTNAME → \c {hostname}
- * \li \c ADDRESS → \c {hostname}|{ipv4}|{ipv6}
+ * Use INT/UINT/FLOAT for numbers (RetroArch volume, percent, ports
+ * are just UINT/FLOAT with ranges — see the DEF_* macros in
+ * \c libretro_core_option_input.h). Use STRING or DATE for those
+ * shapes. Everything else is CUSTOM: a pattern that may include
+ * named atoms \c {ipv4} \c {ipv6} \c {hostname} \c {port}.
  *
- * For \c CUSTOM, \c pattern is a possessive piecewise matcher
- * (not PCRE): literals, charset classes \c [...] with optional
- * \c ^ negate and ranges, quantifiers \c ? \c * \c + \c {n} \c {n,m},
- * named atoms \c {ipv4} \c {ipv6} \c {hostname} \c {port},
- * top-level alternation \c |, and one trailing optional group
- * \c (...)?. Escapes: \c \\ \c \[ \c \].
- * Hard caps: pattern length \ref RETRO_CORE_OPTION_INPUT_PATTERN_MAX,
- * value length \ref RETRO_CORE_OPTION_INPUT_VALUE_MAX, at most 16 atoms
- * per alternative.
- * Note: optional \c :{port} after bare IPv6 is ambiguous; prefer a
- * separate UINT port option or host-only \c ADDRESS.
+ * Common CUSTOM patterns (also provided as macros):
+ * \li IPv4: \c {ipv4}
+ * \li IPv6: \c {ipv6}
+ * \li Hostname: \c {hostname}
+ * \li Host: \c {hostname}|{ipv4}|{ipv6}
+ * \li Host + optional port (not IPv6): \c {hostname}(:{port})?|{ipv4}(:{port})?
+ *
+ * Pattern language (not PCRE): literals, \c [...] classes,
+ * \c ? \c * \c + \c {n} \c {n,m}, named atoms, top-level \c |,
+ * one trailing \c (...)?. Caps: pattern 64 bytes, value 256 bytes.
+ * Bare IPv6 + \c :port is ambiguous; use a separate UINT port option.
  *
  * @see RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS
+ * @see libretro_core_option_input.h
  */
 struct retro_core_option_input
 {

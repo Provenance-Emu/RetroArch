@@ -5,21 +5,13 @@
 #include <string.h>
 
 #include <libretro.h>
+#include <libretro_core_option_input.h>
 #include <retro_inline.h>
 
 /*
- ********************************
- * VERSION: 2.1 (typed inputs)
- ********************************
- *
- * Demonstrates RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS:
- * ADDRESS (hostname|ipv4|ipv6), UINT port, float, CUSTOM hex,
- * and CUSTOM host(:port)? composition — plus a discrete fallback
- * for older frontends.
- *
- * - 2.2: ADDRESS / IPV6 / HOSTNAME + composable {atom} patterns
- * - 2.1: Typed freeform inputs via SET_CORE_OPTION_INPUTS
- * - 2.0: Core options v2 categories
+ * Typed freeform inputs via SET_CORE_OPTION_INPUTS (still core options v2).
+ * Numbers are UINT/FLOAT. Addresses are CUSTOM over {hostname}|{ipv4}|{ipv6}.
+ * Probe the env call with NULL; old frontends fall back to discrete lists.
  */
 
 #ifdef __cplusplus
@@ -121,32 +113,11 @@ struct retro_core_options_v2 options_typed = {
 };
 
 static const struct retro_core_option_input option_inputs[] = {
-   {
-      "mycore_server_host",
-      RETRO_CORE_OPTION_INPUT_ADDRESS,
-      0, 0, 0, 0, 0, 0, NULL, NULL
-   },
-   {
-      "mycore_server_port",
-      RETRO_CORE_OPTION_INPUT_UINT,
-      1.0, 65535.0, 1.0, 0, 0, 0, NULL, NULL
-   },
-   {
-      "mycore_endpoint",
-      RETRO_CORE_OPTION_INPUT_CUSTOM,
-      0, 0, 0, 0, 1, 64, NULL,
-      "{hostname}(:{port})?|{ipv4}(:{port})?"
-   },
-   {
-      "mycore_gain",
-      RETRO_CORE_OPTION_INPUT_FLOAT,
-      -80.0, 12.0, 0.5, 1, 0, 0, NULL, NULL
-   },
-   {
-      "mycore_serial",
-      RETRO_CORE_OPTION_INPUT_CUSTOM,
-      0, 0, 0, 0, 1, 8, NULL, "[0-9A-Fa-f]{1,8}"
-   },
+   RETRO_CORE_OPTION_INPUT_DEF_ADDRESS("mycore_server_host"),
+   RETRO_CORE_OPTION_INPUT_DEF_PORT("mycore_server_port"),
+   RETRO_CORE_OPTION_INPUT_DEF_HOST_PORT("mycore_endpoint"),
+   RETRO_CORE_OPTION_INPUT_DEF_FLOAT("mycore_gain", -80.0, 12.0, 0.5, 1),
+   RETRO_CORE_OPTION_INPUT_DEF_CUSTOM("mycore_serial", "[0-9A-Fa-f]{1,8}"),
    { NULL, 0, 0, 0, 0, 0, 0, 0, NULL, NULL }
 };
 

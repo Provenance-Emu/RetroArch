@@ -52,8 +52,9 @@ static void test_ipv4(void)
    struct retro_core_option_input in;
 
    memset(&in, 0, sizeof(in));
-   in.key  = "ip";
-   in.type = RETRO_CORE_OPTION_INPUT_IPV4;
+   in.key     = "ip";
+   in.type    = RETRO_CORE_OPTION_INPUT_CUSTOM;
+   in.pattern = RETRO_CORE_OPTION_INPUT_PATTERN_IPV4;
 
    expect_true("ipv4 127.0.0.1",
          retro_core_option_input_validate(&in, "127.0.0.1"));
@@ -134,14 +135,7 @@ static void test_float(void)
 
 static void test_uint_port(void)
 {
-   struct retro_core_option_input in;
-
-   memset(&in, 0, sizeof(in));
-   in.key  = "port";
-   in.type = RETRO_CORE_OPTION_INPUT_UINT;
-   in.min  = 1.0;
-   in.max  = 65535.0;
-   in.step = 1.0;
+   struct retro_core_option_input in = RETRO_CORE_OPTION_INPUT_DEF_PORT("port");
 
    expect_true("port 26760",
          retro_core_option_input_validate(&in, "26760"));
@@ -155,6 +149,44 @@ static void test_uint_port(void)
          retro_core_option_input_validate(&in, "026760"));
    expect_false("port sign",
          retro_core_option_input_validate(&in, "-1"));
+}
+
+static void test_presets(void)
+{
+   struct retro_core_option_input percent =
+         RETRO_CORE_OPTION_INPUT_DEF_PERCENT("pct");
+   struct retro_core_option_input volume =
+         RETRO_CORE_OPTION_INPUT_DEF_VOLUME_DB("vol");
+   struct retro_core_option_input host =
+         RETRO_CORE_OPTION_INPUT_DEF_ADDRESS("host");
+   struct retro_core_option_input hex =
+         RETRO_CORE_OPTION_INPUT_DEF_HEX8("id");
+
+   expect_true("percent 0",
+         retro_core_option_input_validate(&percent, "0"));
+   expect_true("percent 100",
+         retro_core_option_input_validate(&percent, "100"));
+   expect_false("percent 101",
+         retro_core_option_input_validate(&percent, "101"));
+
+   expect_true("volume -80.0",
+         retro_core_option_input_validate(&volume, "-80.0"));
+   expect_true("volume 12.0",
+         retro_core_option_input_validate(&volume, "12.0"));
+   expect_false("volume 13.0",
+         retro_core_option_input_validate(&volume, "13.0"));
+
+   expect_true("def address hostname",
+         retro_core_option_input_validate(&host, "localhost"));
+   expect_true("def address ipv6",
+         retro_core_option_input_validate(&host, "::1"));
+   expect_false("def address port",
+         retro_core_option_input_validate(&host, "127.0.0.1:80"));
+
+   expect_true("hex8 DEADBEEF",
+         retro_core_option_input_validate(&hex, "DEADBEEF"));
+   expect_false("hex8 short",
+         retro_core_option_input_validate(&hex, "AB"));
 }
 
 static void test_custom_pattern(void)
@@ -220,8 +252,9 @@ static void test_ipv6(void)
    struct retro_core_option_input in;
 
    memset(&in, 0, sizeof(in));
-   in.key  = "ip6";
-   in.type = RETRO_CORE_OPTION_INPUT_IPV6;
+   in.key     = "ip6";
+   in.type    = RETRO_CORE_OPTION_INPUT_CUSTOM;
+   in.pattern = RETRO_CORE_OPTION_INPUT_PATTERN_IPV6;
 
    expect_true("ipv6 loopback",
          retro_core_option_input_validate(&in, "::1"));
@@ -248,8 +281,9 @@ static void test_hostname(void)
    struct retro_core_option_input in;
 
    memset(&in, 0, sizeof(in));
-   in.key  = "host";
-   in.type = RETRO_CORE_OPTION_INPUT_HOSTNAME;
+   in.key     = "host";
+   in.type    = RETRO_CORE_OPTION_INPUT_CUSTOM;
+   in.pattern = RETRO_CORE_OPTION_INPUT_PATTERN_HOSTNAME;
 
    expect_true("hostname localhost",
          retro_core_option_input_validate(&in, "localhost"));
@@ -275,8 +309,9 @@ static void test_address(void)
    struct retro_core_option_input in;
 
    memset(&in, 0, sizeof(in));
-   in.key  = "addr";
-   in.type = RETRO_CORE_OPTION_INPUT_ADDRESS;
+   in.key     = "addr";
+   in.type    = RETRO_CORE_OPTION_INPUT_CUSTOM;
+   in.pattern = RETRO_CORE_OPTION_INPUT_PATTERN_ADDRESS;
 
    expect_true("address ipv4",
          retro_core_option_input_validate(&in, "10.0.0.1"));
@@ -353,6 +388,7 @@ int main(void)
    test_date();
    test_float();
    test_uint_port();
+   test_presets();
    test_custom_pattern();
    test_custom_compose();
    test_string();

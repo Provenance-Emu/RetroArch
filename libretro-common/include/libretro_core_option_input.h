@@ -6,12 +6,11 @@
  *
  * No heap allocation. No regex engine. Safe on hostile pattern/value data.
  *
- * Built-in address types are sugar over named atoms:
- *   IPV4 → {ipv4}, IPV6 → {ipv6}, HOSTNAME → {hostname},
- *   ADDRESS → {hostname}|{ipv4}|{ipv6}
+ * Numbers use INT/UINT/FLOAT (min/max/step). Addresses and similar
+ * shapes are CUSTOM patterns over named atoms:
+ *   {ipv4} {ipv6} {hostname} {port}
  *
- * CUSTOM may compose literals, classes, {atoms}, top-level |, and one
- * trailing (...)? optional group.
+ * Common patterns and DEF_* initializer macros are below.
  *
  * @see retro_core_option_input
  * @see RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS
@@ -37,6 +36,45 @@ extern "C" {
 #define RETRO_CORE_OPTION_INPUT_IPV6_MAX      45
 #define RETRO_CORE_OPTION_INPUT_IPV4_MAX      15
 #define RETRO_CORE_OPTION_INPUT_PORT_MAX       5
+
+/* Named-atom patterns. Use with type CUSTOM. */
+#define RETRO_CORE_OPTION_INPUT_PATTERN_IPV4      "{ipv4}"
+#define RETRO_CORE_OPTION_INPUT_PATTERN_IPV6      "{ipv6}"
+#define RETRO_CORE_OPTION_INPUT_PATTERN_HOSTNAME  "{hostname}"
+#define RETRO_CORE_OPTION_INPUT_PATTERN_PORT      "{port}"
+#define RETRO_CORE_OPTION_INPUT_PATTERN_ADDRESS   "{hostname}|{ipv4}|{ipv6}"
+#define RETRO_CORE_OPTION_INPUT_PATTERN_HOST_PORT \
+      "{hostname}(:{port})?|{ipv4}(:{port})?"
+#define RETRO_CORE_OPTION_INPUT_PATTERN_HEX8      "[0-9A-Fa-f]{8}"
+
+/* Drop-in rows for a retro_core_option_input[] (C89). */
+#define RETRO_CORE_OPTION_INPUT_DEF_UINT(key, minv, maxv, stepv) \
+   { (key), RETRO_CORE_OPTION_INPUT_UINT, (minv), (maxv), (stepv), 0, 0, 0, NULL, NULL }
+#define RETRO_CORE_OPTION_INPUT_DEF_FLOAT(key, minv, maxv, stepv, dec) \
+   { (key), RETRO_CORE_OPTION_INPUT_FLOAT, (minv), (maxv), (stepv), (dec), 0, 0, NULL, NULL }
+#define RETRO_CORE_OPTION_INPUT_DEF_PORT(key) \
+      RETRO_CORE_OPTION_INPUT_DEF_UINT((key), 1.0, 65535.0, 1.0)
+#define RETRO_CORE_OPTION_INPUT_DEF_PERCENT(key) \
+      RETRO_CORE_OPTION_INPUT_DEF_UINT((key), 0.0, 100.0, 1.0)
+#define RETRO_CORE_OPTION_INPUT_DEF_VOLUME_DB(key) \
+      RETRO_CORE_OPTION_INPUT_DEF_FLOAT((key), -80.0, 12.0, 1.0, 1)
+#define RETRO_CORE_OPTION_INPUT_DEF_CUSTOM(key, pat) \
+   { (key), RETRO_CORE_OPTION_INPUT_CUSTOM, 0, 0, 0, 0, 0, 0, NULL, (pat) }
+#define RETRO_CORE_OPTION_INPUT_DEF_IPV4(key) \
+      RETRO_CORE_OPTION_INPUT_DEF_CUSTOM((key), RETRO_CORE_OPTION_INPUT_PATTERN_IPV4)
+#define RETRO_CORE_OPTION_INPUT_DEF_IPV6(key) \
+      RETRO_CORE_OPTION_INPUT_DEF_CUSTOM((key), RETRO_CORE_OPTION_INPUT_PATTERN_IPV6)
+#define RETRO_CORE_OPTION_INPUT_DEF_HOSTNAME(key) \
+      RETRO_CORE_OPTION_INPUT_DEF_CUSTOM((key), RETRO_CORE_OPTION_INPUT_PATTERN_HOSTNAME)
+#define RETRO_CORE_OPTION_INPUT_DEF_ADDRESS(key) \
+      RETRO_CORE_OPTION_INPUT_DEF_CUSTOM((key), RETRO_CORE_OPTION_INPUT_PATTERN_ADDRESS)
+#define RETRO_CORE_OPTION_INPUT_DEF_HOST_PORT(key) \
+      RETRO_CORE_OPTION_INPUT_DEF_CUSTOM((key), RETRO_CORE_OPTION_INPUT_PATTERN_HOST_PORT)
+#define RETRO_CORE_OPTION_INPUT_DEF_HEX8(key) \
+   { (key), RETRO_CORE_OPTION_INPUT_CUSTOM, 0, 0, 0, 0, 8, 8, NULL, \
+         RETRO_CORE_OPTION_INPUT_PATTERN_HEX8 }
+#define RETRO_CORE_OPTION_INPUT_DEF_DATE(key) \
+   { (key), RETRO_CORE_OPTION_INPUT_DATE, 0, 0, 0, 0, 0, 0, NULL, NULL }
 
 /* ---- internal helpers -------------------------------------------------- */
 
@@ -387,13 +425,6 @@ static INLINE bool retro_core_option_input_validate_port(const char *value)
    if (!retro_core_option_input_parse_uint(value, &uv))
       return false;
    return uv >= 1 && uv <= 65535;
-}
-
-static INLINE bool retro_core_option_input_validate_address(const char *value)
-{
-   return retro_core_option_input_validate_hostname(value)
-         || retro_core_option_input_validate_ipv4(value)
-         || retro_core_option_input_validate_ipv6(value);
 }
 
 static INLINE bool retro_core_option_input_is_leap(int year)
@@ -1087,18 +1118,6 @@ static INLINE bool retro_core_option_input_validate(
 
       case RETRO_CORE_OPTION_INPUT_STRING:
          return retro_core_option_input_validate_string(in, value);
-
-      case RETRO_CORE_OPTION_INPUT_IPV4:
-         return retro_core_option_input_validate_ipv4(value);
-
-      case RETRO_CORE_OPTION_INPUT_IPV6:
-         return retro_core_option_input_validate_ipv6(value);
-
-      case RETRO_CORE_OPTION_INPUT_HOSTNAME:
-         return retro_core_option_input_validate_hostname(value);
-
-      case RETRO_CORE_OPTION_INPUT_ADDRESS:
-         return retro_core_option_input_validate_address(value);
 
       case RETRO_CORE_OPTION_INPUT_DATE:
          return retro_core_option_input_validate_date(value);

@@ -60,24 +60,6 @@ A template for enabling categories via the core options v2 interface is provided
 
 ## Adding typed freeform core option inputs
 
-Core options are still registered with `SET_CORE_OPTIONS_V2`, but cores that need freeform values (IPv4 addresses, ports, floats with ranges, dates, custom patterns) can also call `RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS`.
+Still core options v2. Probe `SET_CORE_OPTION_INPUTS` with `NULL`; old frontends return false.
 
-This does **not** bump `GET_CORE_OPTIONS_VERSION` (still 2). Support is detected by probing the environment call with `data == NULL`.
-
-See `example_inputs/libretro_core_options.h`:
-
-1. Register v2 option definitions (keep at least a default in `values[]`; extras become presets).
-2. Probe `SET_CORE_OPTION_INPUTS` with `NULL`.
-3. If true, register the typed definitions and pass a `retro_core_option_input` array.
-4. If false, fall back to discrete lists / octet splits for older frontends.
-
-Validation helpers live in `libretro-common/include/libretro_core_option_input.h` (header-only, no regex engine).
-
-Built-in address types are sugar over named validator atoms:
-
-- `IPV4` → `{ipv4}`
-- `IPV6` → `{ipv6}`
-- `HOSTNAME` → `{hostname}`
-- `ADDRESS` → `{hostname}|{ipv4}|{ipv6}` (host only, no port)
-
-`CUSTOM` patterns may compose those atoms with literals, top-level `|`, and one trailing `(...)?` group, e.g. `{hostname}(:{port})?|{ipv4}(:{port})?`. There is no dedicated PORT/PROTOCOL enum type; `{port}` is composition-only. Prefer a separate UINT port option when pairing with IPv6 (bare `addr:port` is ambiguous).
+See `TYPED_INPUTS.md` and `example_inputs/libretro_core_options.h`. Numbers are UINT/FLOAT. Addresses are CUSTOM patterns over `{ipv4}` `{ipv6}` `{hostname}` `{port}`.
