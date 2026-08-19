@@ -4654,7 +4654,6 @@ int action_ok_core_option_dropdown_list(const char *path,
    if (option && option->has_input
          && core_option_manager_get_input(coreopts, option_index, &in)
          && (in.type == RETRO_CORE_OPTION_INPUT_STRING
-            || in.type == RETRO_CORE_OPTION_INPUT_DATE
             || in.type == RETRO_CORE_OPTION_INPUT_CUSTOM))
    {
       menu_input_ctx_line_t line;

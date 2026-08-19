@@ -12,51 +12,61 @@ Values stay strings (`GET_VARIABLE` / `SET_VARIABLE` / `*.opt`).
 | --- | --- |
 | `INT` / `UINT` / `FLOAT` | A number with min/max/step |
 | `STRING` | Free text (`min_length` / `max_length` / `allowed_chars`) |
-| `DATE` | Calendar date `YYYY-MM-DD` |
-| `CUSTOM` | Everything else: a pattern |
+| `CUSTOM` | A pattern over named atoms |
 
-Do not add more enum cases. A port is `UINT` 1–65535. An IP is `CUSTOM` `{ipv4}`.
+A port is `UINT` 1–65535. An IP is `CUSTOM` `{ipv4}`. A date is `CUSTOM` `{date}`.
+Cores add their own atoms instead of new enum cases.
 
 ## Cookbook
 
 ```c
 #include <libretro_core_option_input.h>
 
+static bool RETRO_CALLCONV validate_mac(const char *value)
+{
+   /* no alloc, no environ */
+   (void)value;
+   return false;
+}
+
+static const struct retro_core_option_input_atom atoms[] = {
+   { "hexid", "[0-9A-Fa-f]{1,8}", NULL },
+   { "mac", NULL, validate_mac },
+   { NULL, NULL, NULL }
+};
+
 static const struct retro_core_option_input inputs[] = {
    RETRO_CORE_OPTION_INPUT_DEF_ADDRESS("core_host"),
    RETRO_CORE_OPTION_INPUT_DEF_PORT("core_port"),
-   RETRO_CORE_OPTION_INPUT_DEF_HOST_PORT("core_endpoint"),
-   RETRO_CORE_OPTION_INPUT_DEF_PERCENT("core_opacity"),
-   RETRO_CORE_OPTION_INPUT_DEF_VOLUME_DB("core_gain"),
-   RETRO_CORE_OPTION_INPUT_DEF_HEX8("core_serial"),
-   RETRO_CORE_OPTION_INPUT_DEF_CUSTOM("core_serial_var", "[0-9A-Fa-f]{1,8}"),
+   RETRO_CORE_OPTION_INPUT_DEF_CUSTOM("core_serial", "{hexid}"),
+   RETRO_CORE_OPTION_INPUT_DEF_CUSTOM("core_nic", "{mac}"),
    { NULL, 0, 0, 0, 0, 0, 0, 0, NULL, NULL }
 };
+
+static const struct retro_core_option_input_set set = { inputs, atoms };
+
+environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS, (void *)&set);
 ```
 
-`values[]` on the v2 definition is still required (at least a default). Extra entries are presets.
+Frontends that implement this env call validate `{hexid}` / `{mac}` without knowing those names. Presentation is stepper for INT/UINT/FLOAT, OSK otherwise.
 
-## CUSTOM patterns
+## Atoms
 
-Not PCRE. Caps: pattern 64 bytes, value 256 bytes.
+Built-in (data or a small C validator in the frontend):
 
-- literals, `[...]` classes
-- `?` `*` `+` `{n}` `{n,m}`
-- named atoms: `{ipv4}` `{ipv6}` `{hostname}` `{port}`
-- top-level `|`
-- one trailing `(...)?`
-
-Shared patterns (same atoms the matcher already uses):
-
-| Macro | Pattern |
+| Name | Rule |
 | --- | --- |
-| `PATTERN_IPV4` | `{ipv4}` |
-| `PATTERN_IPV6` | `{ipv6}` |
-| `PATTERN_HOSTNAME` | `{hostname}` |
-| `PATTERN_ADDRESS` | `{hostname}\|{ipv4}\|{ipv6}` |
-| `PATTERN_HOST_PORT` | `{hostname}(:{port})?\|{ipv4}(:{port})?` |
-| `PATTERN_HEX8` | `[0-9A-Fa-f]{8}` |
+| `{uint:min-max}` | unsigned, no leading zeros |
+| `{ipv4}` | `{uint:0-255}.{uint:0-255}.{uint:0-255}.{uint:0-255}` |
+| `{port}` | `{uint:1-65535}` |
+| `{ipv6}` | validator |
+| `{hostname}` | validator |
+| `{date}` | `YYYY-MM-DD` validator |
 
-IPv6 plus `:port` is ambiguous on a bare string. Use a separate `UINT` port option.
+Core atoms: exactly one of `pattern` or `validate`. `validate` must not allocate or call `environ`.
+
+Pattern language (not PCRE): literals, `[...]`, `?` `*` `+` `{n}` `{n,m}`, named atoms, top-level `|`, one trailing `(...)?`. Caps: pattern 64 bytes, value 256 bytes.
+
+IPv6 plus `:port` is ambiguous. Use a separate `UINT` port option.
 
 See `example_inputs/libretro_core_options.h`.

@@ -84,6 +84,7 @@ struct core_option_manager
    struct core_category *cats;
    struct core_option *opts;
    nested_list_t *option_map;
+   struct retro_core_option_input_atom *input_atoms;
 
    size_t cats_size;
    size_t size;
@@ -450,15 +451,16 @@ bool core_option_manager_set_val_string(core_option_manager_t *opt,
  * core_option_manager_set_inputs:
  *
  * @opt    : options manager handle
- * @inputs : NULL-terminated array of typed input
- *           descriptors (may be NULL to clear)
+ * @set    : typed input set (inputs + optional named atoms).
+ *           May be NULL to clear.
  *
  * Attaches typed freeform input metadata to matching
- * option keys. Copies all strings. Re-reads config
- * so freeform saved values are accepted when valid.
+ * option keys. Copies all strings. Function pointers
+ * stay owned by the core. Re-reads config so freeform
+ * saved values are accepted when valid.
  **/
 void core_option_manager_set_inputs(core_option_manager_t *opt,
-      const struct retro_core_option_input *inputs);
+      const struct retro_core_option_input_set *set);
 
 /**
  * core_option_manager_get_input:

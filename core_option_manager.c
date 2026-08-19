@@ -17,6 +17,7 @@
 #include <string/stdstring.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <math.h>
 
 #ifdef HAVE_CHEEVOS
@@ -32,6 +33,65 @@
 #include "verbosity.h"
 
 #include <libretro_core_option_input.h>
+
+#define CORE_OPTION_INPUT_ATOMS_MAX 32
+
+static void core_option_manager_free_input_atoms(core_option_manager_t *opt)
+{
+   size_t i;
+
+   if (!opt || !opt->input_atoms)
+      return;
+
+   for (i = 0; opt->input_atoms[i].name; i++)
+   {
+      free((void *)opt->input_atoms[i].name);
+      if (opt->input_atoms[i].pattern)
+         free((void *)opt->input_atoms[i].pattern);
+   }
+
+   free(opt->input_atoms);
+   opt->input_atoms = NULL;
+}
+
+static void core_option_manager_copy_input_atoms(
+      core_option_manager_t *opt,
+      const struct retro_core_option_input_atom *atoms)
+{
+   size_t n = 0;
+   size_t i;
+   const struct retro_core_option_input_atom *p;
+
+   core_option_manager_free_input_atoms(opt);
+
+   if (!opt || !atoms)
+      return;
+
+   for (p = atoms; p->name && *p->name; p++)
+   {
+      n++;
+      if (n >= CORE_OPTION_INPUT_ATOMS_MAX)
+         break;
+   }
+
+   if (n == 0)
+      return;
+
+   opt->input_atoms = (struct retro_core_option_input_atom *)
+         calloc(n + 1, sizeof(*opt->input_atoms));
+   if (!opt->input_atoms)
+      return;
+
+   for (i = 0; i < n; i++)
+   {
+      if (!atoms[i].name || !*atoms[i].name)
+         break;
+      opt->input_atoms[i].name = strdup(atoms[i].name);
+      if (atoms[i].pattern && *atoms[i].pattern)
+         opt->input_atoms[i].pattern = strdup(atoms[i].pattern);
+      opt->input_atoms[i].validate = atoms[i].validate;
+   }
+}
 
 /*********************/
 /* Option Conversion */
@@ -823,6 +883,7 @@ core_option_manager_t *core_option_manager_new_vars(
    opt->opts                        = NULL;
    opt->size                        = 0;
    opt->option_map                  = nested_list_init();
+   opt->input_atoms                 = NULL;
    opt->updated                     = false;
    opt->log                         = true;
 
@@ -1112,6 +1173,7 @@ core_option_manager_t *core_option_manager_new(
    opt->opts                         = NULL;
    opt->size                         = 0;
    opt->option_map                   = nested_list_init();
+   opt->input_atoms                  = NULL;
    opt->updated                      = false;
    opt->log                          = true;
 
@@ -1307,6 +1369,8 @@ void core_option_manager_free(core_option_manager_t *opt)
 
    if (opt->option_map)
       nested_list_free(opt->option_map);
+
+   core_option_manager_free_input_atoms(opt);
 
    if (opt->conf)
       config_file_free(opt->conf);
@@ -1882,7 +1946,8 @@ void core_option_manager_adjust_val(core_option_manager_t* opt,
          snprintf(buf, sizeof(buf), "%lu", uv);
       }
 
-      if (!retro_core_option_input_validate(&in, buf))
+      if (!retro_core_option_input_validate_with_atoms(
+               &in, opt->input_atoms, buf))
          return;
 
       if (option->current)
@@ -1916,7 +1981,7 @@ void core_option_manager_adjust_val(core_option_manager_t* opt,
       new_val = option->vals->elems[option->index].data;
 
       /* Keep freeform current in sync when cycling presets
-       * (STRING/IPV4/DATE/CUSTOM, or numeric with presets). */
+       * (STRING/CUSTOM, or numeric with presets). */
       if (option->has_input && new_val)
       {
          if (option->current)
@@ -2138,7 +2203,8 @@ bool core_option_manager_set_val_string(core_option_manager_t *opt,
    {
       if (!core_option_manager_get_input(opt, idx, &in))
          return false;
-      if (!retro_core_option_input_validate(&in, val))
+      if (!retro_core_option_input_validate_with_atoms(
+               &in, opt->input_atoms, val))
          return false;
 
       if (option->current)
@@ -2184,13 +2250,16 @@ bool core_option_manager_set_val_string(core_option_manager_t *opt,
 }
 
 void core_option_manager_set_inputs(core_option_manager_t *opt,
-      const struct retro_core_option_input *inputs)
+      const struct retro_core_option_input_set *set)
 {
    size_t i;
    size_t j;
+   const struct retro_core_option_input *inputs;
 
    if (!opt)
       return;
+
+   core_option_manager_free_input_atoms(opt);
 
    /* Clear existing typed metadata. */
    for (i = 0; i < opt->size; i++)
@@ -2215,6 +2284,12 @@ void core_option_manager_set_inputs(core_option_manager_t *opt,
       option->has_input = false;
    }
 
+   if (!set)
+      return;
+
+   core_option_manager_copy_input_atoms(opt, set->atoms);
+
+   inputs = set->inputs;
    if (!inputs)
       return;
 
@@ -2253,7 +2328,8 @@ void core_option_manager_set_inputs(core_option_manager_t *opt,
 
       if (entry && entry->value && *entry->value
             && core_option_manager_get_input(opt, idx, &in)
-            && retro_core_option_input_validate(&in, entry->value))
+            && retro_core_option_input_validate_with_atoms(
+                  &in, opt->input_atoms, entry->value))
       {
          free(option->current);
          option->current = strdup(entry->value);

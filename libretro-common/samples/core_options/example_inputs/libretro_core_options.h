@@ -10,8 +10,8 @@
 
 /*
  * Typed freeform inputs via SET_CORE_OPTION_INPUTS (still core options v2).
- * Numbers are UINT/FLOAT. Addresses are CUSTOM over {hostname}|{ipv4}|{ipv6}.
- * Probe the env call with NULL; old frontends fall back to discrete lists.
+ * Numbers are UINT/FLOAT. Addresses are CUSTOM atoms. Core-defined {hexid}
+ * is registered on the input set. Probe with NULL; old frontends fall back.
  */
 
 #ifdef __cplusplus
@@ -117,8 +117,18 @@ static const struct retro_core_option_input option_inputs[] = {
    RETRO_CORE_OPTION_INPUT_DEF_PORT("mycore_server_port"),
    RETRO_CORE_OPTION_INPUT_DEF_HOST_PORT("mycore_endpoint"),
    RETRO_CORE_OPTION_INPUT_DEF_FLOAT("mycore_gain", -80.0, 12.0, 0.5, 1),
-   RETRO_CORE_OPTION_INPUT_DEF_CUSTOM("mycore_serial", "[0-9A-Fa-f]{1,8}"),
+   RETRO_CORE_OPTION_INPUT_DEF_CUSTOM("mycore_serial", "{hexid}"),
    { NULL, 0, 0, 0, 0, 0, 0, 0, NULL, NULL }
+};
+
+static const struct retro_core_option_input_atom option_atoms[] = {
+   { "hexid", "[0-9A-Fa-f]{1,8}", NULL },
+   { NULL, NULL, NULL }
+};
+
+static const struct retro_core_option_input_set option_input_set = {
+   option_inputs,
+   option_atoms
 };
 
 /* ---------------------------------------------------------------------------
@@ -239,7 +249,7 @@ static INLINE void libretro_set_core_options(retro_environment_t environ_cb,
          *categories_supported = environ_cb(
                RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2, &options_typed);
          environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS,
-               (void *)option_inputs);
+               (void *)&option_input_set);
       }
       else
       {

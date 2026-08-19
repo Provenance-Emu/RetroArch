@@ -1832,11 +1832,11 @@ bool runloop_environment_cb(unsigned cmd, void *data)
 
       case RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS:
          {
-            const struct retro_core_option_input *inputs =
-                  (const struct retro_core_option_input *)data;
+            const struct retro_core_option_input_set *set =
+                  (const struct retro_core_option_input_set *)data;
 
             /* NULL probes support without applying descriptors. */
-            if (!inputs)
+            if (!set)
                return true;
 
             if (!runloop_st->core_options)
@@ -1845,7 +1845,7 @@ bool runloop_environment_cb(unsigned cmd, void *data)
                return false;
             }
 
-            core_option_manager_set_inputs(runloop_st->core_options, inputs);
+            core_option_manager_set_inputs(runloop_st->core_options, set);
             RARCH_LOG("[Environ] SET_CORE_OPTION_INPUTS.\n");
             return true;
          }

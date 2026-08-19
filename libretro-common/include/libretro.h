@@ -2902,15 +2902,16 @@ enum retro_mod
  * (at least a default); on supporting frontends, extra entries
  * become presets. On old frontends they remain the only choices.
  *
- * @param[in] data <tt>const struct retro_core_option_input *</tt>.
- * NULL-terminated array of input descriptors.
+ * @param[in] data <tt>const struct retro_core_option_input_set *</tt>.
+ * Input descriptors plus optional named atoms the core defines.
  * May be \c NULL, in which case the frontend returns \c true
  * solely to indicate that typed inputs are supported.
  * The frontend must maintain its own copy of this object,
- * including all strings.
+ * including all strings. Function pointers remain owned by the core.
  * @return \c true if the frontend understands typed core option inputs,
  * even when \c data is \c NULL.
  *
+ * @see retro_core_option_input_set
  * @see retro_core_option_input
  * @see RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2
  * @see RETRO_ENVIRONMENT_SET_VARIABLE
@@ -7342,8 +7343,36 @@ enum retro_core_option_input_type
    RETRO_CORE_OPTION_INPUT_UINT,    /**< Unsigned integer; uses min/max/step. */
    RETRO_CORE_OPTION_INPUT_FLOAT,   /**< Float; uses min/max/step/decimals. */
    RETRO_CORE_OPTION_INPUT_STRING,  /**< Free string; uses min/max_length, allowed_chars. */
-   RETRO_CORE_OPTION_INPUT_DATE,    /**< ISO 8601 calendar date: YYYY-MM-DD. */
-   RETRO_CORE_OPTION_INPUT_CUSTOM   /**< Pattern in \c pattern (atoms, classes, |, (...)?). */
+   RETRO_CORE_OPTION_INPUT_CUSTOM   /**< Pattern in \c pattern (named atoms, classes, |, (...)?). */
+};
+
+/**
+ * Full-string validator supplied by a core or the frontend.
+ *
+ * Must not allocate, must not call \c retro_environment_t,
+ * and must remain valid until the next
+ * \ref RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS or core unload.
+ *
+ * @param value NUL-terminated candidate. Never NULL.
+ * @return \c true if \p value is legal.
+ */
+typedef bool (RETRO_CALLCONV *retro_core_option_input_validate_t)(const char *value);
+
+/**
+ * Named atom in a CUSTOM pattern, e.g. \c {ipv4} or a core type \c {mac}.
+ *
+ * Exactly one of \c pattern or \c validate should be set.
+ * Built-in names: \c ipv4 (data: \c {uint:0-255} octets),
+ * \c ipv6, \c hostname, \c date, \c port (\c {uint:1-65535}).
+ * Parameterized \c {uint:min-max} is always available.
+ *
+ * @see retro_core_option_input_set
+ */
+struct retro_core_option_input_atom
+{
+   const char *name;
+   const char *pattern;
+   retro_core_option_input_validate_t validate;
 };
 
 /**
@@ -7353,18 +7382,12 @@ enum retro_core_option_input_type
  * \ref RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2.
  * Flat (no union) so cores can use C89 static initializers.
  *
- * Use INT/UINT/FLOAT for numbers (RetroArch volume, percent, ports
- * are just UINT/FLOAT with ranges — see the DEF_* macros in
- * \c libretro_core_option_input.h). Use STRING or DATE for those
- * shapes. Everything else is CUSTOM: a pattern that may include
- * named atoms \c {ipv4} \c {ipv6} \c {hostname} \c {port}.
- *
- * Common CUSTOM patterns (also provided as macros):
- * \li IPv4: \c {ipv4}
- * \li IPv6: \c {ipv6}
- * \li Hostname: \c {hostname}
- * \li Host: \c {hostname}|{ipv4}|{ipv6}
- * \li Host + optional port (not IPv6): \c {hostname}(:{port})?|{ipv4}(:{port})?
+ * Use INT/UINT/FLOAT for numbers (see DEF_* in
+ * \c libretro_core_option_input.h). Use STRING for free text.
+ * Everything else is CUSTOM: a pattern over named atoms
+ * (\c {ipv4} \c {ipv6} \c {hostname} \c {port} \c {date} \c {uint:min-max},
+ * plus any atoms the core registers in
+ * \ref retro_core_option_input_set).
  *
  * Pattern language (not PCRE): literals, \c [...] classes,
  * \c ? \c * \c + \c {n} \c {n,m}, named atoms, top-level \c |,
@@ -7414,6 +7437,17 @@ struct retro_core_option_input
 
    /** CUSTOM pattern string; ignored for other types. */
    const char *pattern;
+};
+
+/**
+ * Payload for \ref RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS.
+ *
+ * \c atoms may be NULL. Both arrays are NULL-terminated.
+ */
+struct retro_core_option_input_set
+{
+   const struct retro_core_option_input *inputs;
+   const struct retro_core_option_input_atom *atoms;
 };
 
 /** @} */

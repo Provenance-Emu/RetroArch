@@ -84,8 +84,9 @@ static void test_date(void)
    struct retro_core_option_input in;
 
    memset(&in, 0, sizeof(in));
-   in.key  = "date";
-   in.type = RETRO_CORE_OPTION_INPUT_DATE;
+   in.key     = "date";
+   in.type    = RETRO_CORE_OPTION_INPUT_CUSTOM;
+   in.pattern = RETRO_CORE_OPTION_INPUT_PATTERN_DATE;
 
    expect_true("date 2024-02-29 leap",
          retro_core_option_input_validate(&in, "2024-02-29"));
@@ -379,6 +380,72 @@ static void test_string(void)
          retro_core_option_input_validate(&in, "cad"));
 }
 
+static bool RETRO_CALLCONV test_validate_even_digits(const char *value)
+{
+   const char *p;
+
+   if (!value || !*value)
+      return false;
+
+   for (p = value; *p; p++)
+   {
+      if (*p != '0' && *p != '2' && *p != '4' && *p != '6' && *p != '8')
+         return false;
+   }
+   return true;
+}
+
+static void test_uint_atom(void)
+{
+   struct retro_core_option_input in;
+
+   memset(&in, 0, sizeof(in));
+   in.key     = "octet";
+   in.type    = RETRO_CORE_OPTION_INPUT_CUSTOM;
+   in.pattern = "{uint:0-255}";
+
+   expect_true("uint atom 0",
+         retro_core_option_input_validate(&in, "0"));
+   expect_true("uint atom 255",
+         retro_core_option_input_validate(&in, "255"));
+   expect_false("uint atom 256",
+         retro_core_option_input_validate(&in, "256"));
+   expect_false("uint atom leading zero",
+         retro_core_option_input_validate(&in, "01"));
+}
+
+static void test_core_atoms(void)
+{
+   struct retro_core_option_input in;
+   static const struct retro_core_option_input_atom atoms[] = {
+      { "even", NULL, test_validate_even_digits },
+      { "hexid", "[0-9A-Fa-f]{1,8}", NULL },
+      { NULL, NULL, NULL }
+   };
+
+   memset(&in, 0, sizeof(in));
+   in.key     = "x";
+   in.type    = RETRO_CORE_OPTION_INPUT_CUSTOM;
+   in.pattern = "{even}";
+
+   expect_true("core even 246",
+         retro_core_option_input_validate_with_atoms(&in, atoms, "246"));
+   expect_false("core even 135",
+         retro_core_option_input_validate_with_atoms(&in, atoms, "135"));
+   expect_false("core even without table",
+         retro_core_option_input_validate(&in, "246"));
+
+   in.pattern = "{hexid}";
+   expect_true("core hexid AB",
+         retro_core_option_input_validate_with_atoms(&in, atoms, "AB"));
+   expect_false("core hexid bad",
+         retro_core_option_input_validate_with_atoms(&in, atoms, "GG"));
+
+   in.pattern = "{nope}";
+   expect_false("unknown atom",
+         retro_core_option_input_validate_with_atoms(&in, atoms, "x"));
+}
+
 int main(void)
 {
    test_ipv4();
@@ -392,6 +459,8 @@ int main(void)
    test_custom_pattern();
    test_custom_compose();
    test_string();
+   test_uint_atom();
+   test_core_atoms();
 
    if (failures)
    {
