@@ -1283,6 +1283,7 @@ FRONTEND
 
 #include "../core_info.c"
 #include "../core_backup.c"
+#include "../libretro-common/core_option_input.c"
 #include "../core_option_manager.c"
 
 #if defined(HAVE_NETWORKING)

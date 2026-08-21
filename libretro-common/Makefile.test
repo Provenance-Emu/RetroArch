@@ -52,6 +52,10 @@ TEST_RWEBM_AUDIO = test/formats/test_rwebm_audio
 TEST_RWEBM_AUDIO_SRC = test/formats/test_rwebm_audio.c \
 		encodings/encoding_crc32.c features/features_cpu.c
 
+# Standalone (no libcheck): typed core-option input validator.
+TEST_CORE_OPTION_INPUT = test/core_option_input/test_core_option_input
+TEST_CORE_OPTION_INPUT_SRC = test/core_option_input/test_core_option_input.c
+
 TEST_RPNG = test/formats/test_rpng
 TEST_RPNG_SRC = test/formats/test_rpng.c formats/png/rpng.c \
 		streams/trans_stream.c streams/trans_stream_deflate.c \
@@ -215,6 +219,9 @@ all:
 	# rwebm audio
 	$(CC) $(TEST_UNIT_CFLAGS) $(TEST_RWEBM_AUDIO_SRC) $(LIBCHECK_LIBS) -o $(TEST_RWEBM_AUDIO)
 	$(TEST_RWEBM_AUDIO)
+	# core option typed inputs (header-only validator)
+	$(CC) $(TEST_UNIT_CFLAGS) $(TEST_CORE_OPTION_INPUT_SRC) -lm -o $(TEST_CORE_OPTION_INPUT)
+	$(TEST_CORE_OPTION_INPUT)
 	# vfs samples: file size, seek and EOF boundaries, mapped and not
 	$(MAKE) -f Makefile.test vfs-samples
 	# the three Windows A/W configurations, two of which nothing else builds
@@ -233,7 +240,8 @@ clean:
 	rm -f *.gcda *.gcno
 	rm -f $(TEST_STDSTRING) $(TEST_UTILS) $(TEST_HASH) \
 	      $(TEST_LINKED_LIST) $(TEST_FILE_LIST) $(TEST_GENERIC_QUEUE) \
-	      $(TEST_RPNG) $(TEST_RWAV) $(TEST_RJPEG) $(TEST_RWEBM_AUDIO)
+	      $(TEST_RPNG) $(TEST_RWAV) $(TEST_RJPEG) $(TEST_RWEBM_AUDIO) \
+	      $(TEST_CORE_OPTION_INPUT)
 	rm -f test/*/*.gcda test/*/*.gcno test/*/coverage.info \
 	      test/lists/file_list_coverage.info test/coverage.info
 	rm -rf test/coverage

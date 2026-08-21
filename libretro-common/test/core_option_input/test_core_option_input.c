@@ -1,0 +1,473 @@
+/* Copyright  (C) 2010-2026 The RetroArch team
+ *
+ * ---------------------------------------------------------------------------------------
+ * The following license statement only applies to this file (test_core_option_input.c).
+ * ---------------------------------------------------------------------------------------
+ *
+ * Permission is hereby granted, free of charge,
+ * to any person obtaining a copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software,
+ * and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+ * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+
+#include <libretro_core_option_input.h>
+
+static int failures = 0;
+
+static void expect_true(const char *name, bool got)
+{
+   if (!got)
+   {
+      fprintf(stderr, "FAIL: %s expected true\n", name);
+      failures++;
+   }
+}
+
+static void expect_false(const char *name, bool got)
+{
+   if (got)
+   {
+      fprintf(stderr, "FAIL: %s expected false\n", name);
+      failures++;
+   }
+}
+
+static void test_ipv4(void)
+{
+   struct retro_core_option_input in;
+
+   memset(&in, 0, sizeof(in));
+   in.key     = "ip";
+   in.type    = RETRO_CORE_OPTION_INPUT_CUSTOM;
+   in.pattern = RETRO_CORE_OPTION_INPUT_PATTERN_IPV4;
+
+   expect_true("ipv4 127.0.0.1",
+         retro_core_option_input_validate(&in, "127.0.0.1"));
+   expect_true("ipv4 192.168.1.10",
+         retro_core_option_input_validate(&in, "192.168.1.10"));
+   expect_true("ipv4 0.0.0.0",
+         retro_core_option_input_validate(&in, "0.0.0.0"));
+   expect_true("ipv4 255.255.255.255",
+         retro_core_option_input_validate(&in, "255.255.255.255"));
+
+   expect_false("ipv4 leading zero",
+         retro_core_option_input_validate(&in, "192.168.01.1"));
+   expect_false("ipv4 256",
+         retro_core_option_input_validate(&in, "256.0.0.1"));
+   expect_false("ipv4 hex",
+         retro_core_option_input_validate(&in, "0x7f.0.0.1"));
+   expect_false("ipv4 short",
+         retro_core_option_input_validate(&in, "1.2.3"));
+   expect_false("ipv4 junk",
+         retro_core_option_input_validate(&in, "1.2.3.4.5"));
+   expect_false("ipv4 empty",
+         retro_core_option_input_validate(&in, ""));
+}
+
+static void test_date(void)
+{
+   struct retro_core_option_input in;
+
+   memset(&in, 0, sizeof(in));
+   in.key     = "date";
+   in.type    = RETRO_CORE_OPTION_INPUT_CUSTOM;
+   in.pattern = RETRO_CORE_OPTION_INPUT_PATTERN_DATE;
+
+   expect_true("date 2024-02-29 leap",
+         retro_core_option_input_validate(&in, "2024-02-29"));
+   expect_true("date 2000-02-29 leap",
+         retro_core_option_input_validate(&in, "2000-02-29"));
+   expect_false("date 1900-02-29 not leap",
+         retro_core_option_input_validate(&in, "1900-02-29"));
+   expect_false("date 2023-02-29",
+         retro_core_option_input_validate(&in, "2023-02-29"));
+   expect_false("date 2024-13-01",
+         retro_core_option_input_validate(&in, "2024-13-01"));
+   expect_false("date 2024-00-01",
+         retro_core_option_input_validate(&in, "2024-00-01"));
+   expect_false("date slash",
+         retro_core_option_input_validate(&in, "2024/02/01"));
+   expect_true("date 2024-01-31",
+         retro_core_option_input_validate(&in, "2024-01-31"));
+}
+
+static void test_float(void)
+{
+   struct retro_core_option_input in;
+
+   memset(&in, 0, sizeof(in));
+   in.key      = "gain";
+   in.type     = RETRO_CORE_OPTION_INPUT_FLOAT;
+   in.min      = -80.0;
+   in.max      = 12.0;
+   in.step     = 0.5;
+   in.decimals = 1;
+
+   expect_true("float 0.0",
+         retro_core_option_input_validate(&in, "0.0"));
+   expect_true("float -80.0",
+         retro_core_option_input_validate(&in, "-80.0"));
+   expect_true("float 12.0",
+         retro_core_option_input_validate(&in, "12.0"));
+   expect_true("float 0.5",
+         retro_core_option_input_validate(&in, "0.5"));
+   expect_false("float out of range",
+         retro_core_option_input_validate(&in, "12.5"));
+   expect_false("float bad step",
+         retro_core_option_input_validate(&in, "0.25"));
+   expect_false("float too many decimals",
+         retro_core_option_input_validate(&in, "1.00"));
+}
+
+static void test_uint_port(void)
+{
+   struct retro_core_option_input in = RETRO_CORE_OPTION_INPUT_DEF_PORT("port");
+
+   expect_true("port 26760",
+         retro_core_option_input_validate(&in, "26760"));
+   expect_true("port 1",
+         retro_core_option_input_validate(&in, "1"));
+   expect_false("port 0",
+         retro_core_option_input_validate(&in, "0"));
+   expect_false("port 65536",
+         retro_core_option_input_validate(&in, "65536"));
+   expect_false("port leading zero",
+         retro_core_option_input_validate(&in, "026760"));
+   expect_false("port sign",
+         retro_core_option_input_validate(&in, "-1"));
+}
+
+static void test_presets(void)
+{
+   struct retro_core_option_input percent =
+         RETRO_CORE_OPTION_INPUT_DEF_PERCENT("pct");
+   struct retro_core_option_input volume =
+         RETRO_CORE_OPTION_INPUT_DEF_VOLUME_DB("vol");
+   struct retro_core_option_input host =
+         RETRO_CORE_OPTION_INPUT_DEF_ADDRESS("host");
+   struct retro_core_option_input hex =
+         RETRO_CORE_OPTION_INPUT_DEF_HEX8("id");
+
+   expect_true("percent 0",
+         retro_core_option_input_validate(&percent, "0"));
+   expect_true("percent 100",
+         retro_core_option_input_validate(&percent, "100"));
+   expect_false("percent 101",
+         retro_core_option_input_validate(&percent, "101"));
+
+   expect_true("volume -80.0",
+         retro_core_option_input_validate(&volume, "-80.0"));
+   expect_true("volume 12.0",
+         retro_core_option_input_validate(&volume, "12.0"));
+   expect_false("volume 13.0",
+         retro_core_option_input_validate(&volume, "13.0"));
+
+   expect_true("def address hostname",
+         retro_core_option_input_validate(&host, "localhost"));
+   expect_true("def address ipv6",
+         retro_core_option_input_validate(&host, "::1"));
+   expect_false("def address port",
+         retro_core_option_input_validate(&host, "127.0.0.1:80"));
+
+   expect_true("hex8 DEADBEEF",
+         retro_core_option_input_validate(&hex, "DEADBEEF"));
+   expect_false("hex8 short",
+         retro_core_option_input_validate(&hex, "AB"));
+}
+
+static void test_custom_pattern(void)
+{
+   struct retro_core_option_input in;
+   char overlong[RETRO_CORE_OPTION_INPUT_PATTERN_MAX + 8];
+   unsigned i;
+
+   memset(&in, 0, sizeof(in));
+   in.key        = "serial";
+   in.type       = RETRO_CORE_OPTION_INPUT_CUSTOM;
+   in.min_length = 1;
+   in.max_length = 8;
+   in.pattern    = "[0-9A-Fa-f]{1,8}";
+
+   expect_true("hex AB",
+         retro_core_option_input_validate(&in, "AB"));
+   expect_true("hex deadbeef",
+         retro_core_option_input_validate(&in, "deadbeef"));
+   expect_false("hex too long",
+         retro_core_option_input_validate(&in, "deadbeef0"));
+   expect_false("hex empty",
+         retro_core_option_input_validate(&in, ""));
+   expect_false("hex bad char",
+         retro_core_option_input_validate(&in, "GG"));
+
+   in.pattern = "abc|def";
+   expect_true("alt abc",
+         retro_core_option_input_validate(&in, "abc"));
+   expect_true("alt def",
+         retro_core_option_input_validate(&in, "def"));
+   expect_false("alt neither",
+         retro_core_option_input_validate(&in, "ab"));
+
+   in.pattern = ".*";
+   expect_false("reject wildcard dot",
+         retro_core_option_input_validate(&in, "a"));
+
+   in.pattern = "(abc)";
+   expect_false("reject bare groups",
+         retro_core_option_input_validate(&in, "abc"));
+
+   for (i = 0; i < RETRO_CORE_OPTION_INPUT_PATTERN_MAX + 4; i++)
+      overlong[i] = 'a';
+   overlong[RETRO_CORE_OPTION_INPUT_PATTERN_MAX + 4] = '\0';
+   in.pattern = overlong;
+   expect_false("reject overlong pattern",
+         retro_core_option_input_validate(&in, "a"));
+
+   in.pattern = "aaaaaaaaaaaaaaaaa"; /* 17 literal atoms */
+   expect_false("reject too many atoms",
+         retro_core_option_input_validate(&in, "aaaaaaaaaaaaaaaaa"));
+
+   in.pattern = "ID-[0-9]{3}";
+   expect_true("lit+class ID-042",
+         retro_core_option_input_validate(&in, "ID-042"));
+   expect_false("lit+class ID-42",
+         retro_core_option_input_validate(&in, "ID-42"));
+}
+
+static void test_ipv6(void)
+{
+   struct retro_core_option_input in;
+
+   memset(&in, 0, sizeof(in));
+   in.key     = "ip6";
+   in.type    = RETRO_CORE_OPTION_INPUT_CUSTOM;
+   in.pattern = RETRO_CORE_OPTION_INPUT_PATTERN_IPV6;
+
+   expect_true("ipv6 loopback",
+         retro_core_option_input_validate(&in, "::1"));
+   expect_true("ipv6 full",
+         retro_core_option_input_validate(&in,
+               "2001:0db8:85a3:0000:0000:8a2e:0370:7334"));
+   expect_true("ipv6 compressed",
+         retro_core_option_input_validate(&in, "2001:db8::1"));
+   expect_true("ipv6 all zeros",
+         retro_core_option_input_validate(&in, "::"));
+
+   expect_false("ipv6 mapped",
+         retro_core_option_input_validate(&in, "::ffff:192.0.2.1"));
+   expect_false("ipv6 zone",
+         retro_core_option_input_validate(&in, "fe80::1%eth0"));
+   expect_false("ipv4 as ipv6",
+         retro_core_option_input_validate(&in, "127.0.0.1"));
+   expect_false("ipv6 empty",
+         retro_core_option_input_validate(&in, ""));
+}
+
+static void test_hostname(void)
+{
+   struct retro_core_option_input in;
+
+   memset(&in, 0, sizeof(in));
+   in.key     = "host";
+   in.type    = RETRO_CORE_OPTION_INPUT_CUSTOM;
+   in.pattern = RETRO_CORE_OPTION_INPUT_PATTERN_HOSTNAME;
+
+   expect_true("hostname localhost",
+         retro_core_option_input_validate(&in, "localhost"));
+   expect_true("hostname example.com",
+         retro_core_option_input_validate(&in, "example.com"));
+   expect_true("hostname sub",
+         retro_core_option_input_validate(&in, "a.b-c.example"));
+
+   expect_false("hostname underscore",
+         retro_core_option_input_validate(&in, "foo_bar"));
+   expect_false("hostname scheme",
+         retro_core_option_input_validate(&in, "http://example.com"));
+   expect_false("hostname slash",
+         retro_core_option_input_validate(&in, "example.com/path"));
+   expect_false("hostname leading dash",
+         retro_core_option_input_validate(&in, "-bad.com"));
+   expect_false("hostname empty",
+         retro_core_option_input_validate(&in, ""));
+}
+
+static void test_address(void)
+{
+   struct retro_core_option_input in;
+
+   memset(&in, 0, sizeof(in));
+   in.key     = "addr";
+   in.type    = RETRO_CORE_OPTION_INPUT_CUSTOM;
+   in.pattern = RETRO_CORE_OPTION_INPUT_PATTERN_ADDRESS;
+
+   expect_true("address ipv4",
+         retro_core_option_input_validate(&in, "10.0.0.1"));
+   expect_true("address ipv6",
+         retro_core_option_input_validate(&in, "2001:db8::2"));
+   expect_true("address hostname",
+         retro_core_option_input_validate(&in, "dsu.local"));
+   expect_false("address with port",
+         retro_core_option_input_validate(&in, "10.0.0.1:26760"));
+   expect_false("address empty",
+         retro_core_option_input_validate(&in, ""));
+}
+
+static void test_custom_compose(void)
+{
+   struct retro_core_option_input in;
+
+   memset(&in, 0, sizeof(in));
+   in.key        = "hostport";
+   in.type       = RETRO_CORE_OPTION_INPUT_CUSTOM;
+   in.min_length = 1;
+   in.max_length = 64;
+   /* Optional port on each alt — top-level (a|b) grouping is not in v1. */
+   in.pattern    = "{hostname}(:{port})?|{ipv4}(:{port})?";
+
+   expect_true("compose host",
+         retro_core_option_input_validate(&in, "example.com"));
+   expect_true("compose ipv4",
+         retro_core_option_input_validate(&in, "192.168.1.10"));
+   expect_true("compose ipv4:port",
+         retro_core_option_input_validate(&in, "192.168.1.10:26760"));
+   expect_true("compose host:port",
+         retro_core_option_input_validate(&in, "example.com:80"));
+   expect_false("compose bad port",
+         retro_core_option_input_validate(&in, "192.168.1.10:0"));
+   expect_false("compose ipv6 bare (not in pattern)",
+         retro_core_option_input_validate(&in, "2001:db8::1"));
+
+   in.pattern = "{hostname}|{ipv4}|{ipv6}";
+   expect_true("compose address-like ipv6",
+         retro_core_option_input_validate(&in, "2001:db8::1"));
+}
+
+static void test_string(void)
+{
+   struct retro_core_option_input in;
+
+   memset(&in, 0, sizeof(in));
+   in.key        = "name";
+   in.type       = RETRO_CORE_OPTION_INPUT_STRING;
+   in.min_length = 1;
+   in.max_length = 16;
+
+   expect_true("string hello",
+         retro_core_option_input_validate(&in, "hello"));
+   expect_false("string empty",
+         retro_core_option_input_validate(&in, ""));
+   expect_false("string control",
+         retro_core_option_input_validate(&in, "a\nb"));
+
+   in.allowed_chars = "abc";
+   expect_true("string charset",
+         retro_core_option_input_validate(&in, "cab"));
+   expect_false("string charset miss",
+         retro_core_option_input_validate(&in, "cad"));
+}
+
+static bool RETRO_CALLCONV test_validate_even_digits(const char *value)
+{
+   const char *p;
+
+   if (!value || !*value)
+      return false;
+
+   for (p = value; *p; p++)
+   {
+      if (*p != '0' && *p != '2' && *p != '4' && *p != '6' && *p != '8')
+         return false;
+   }
+   return true;
+}
+
+static void test_uint_atom(void)
+{
+   struct retro_core_option_input in;
+
+   memset(&in, 0, sizeof(in));
+   in.key     = "octet";
+   in.type    = RETRO_CORE_OPTION_INPUT_CUSTOM;
+   in.pattern = "{uint:0-255}";
+
+   expect_true("uint atom 0",
+         retro_core_option_input_validate(&in, "0"));
+   expect_true("uint atom 255",
+         retro_core_option_input_validate(&in, "255"));
+   expect_false("uint atom 256",
+         retro_core_option_input_validate(&in, "256"));
+   expect_false("uint atom leading zero",
+         retro_core_option_input_validate(&in, "01"));
+}
+
+static void test_core_atoms(void)
+{
+   struct retro_core_option_input in;
+   static const struct retro_core_option_input_atom atoms[] = {
+      { "even", NULL, test_validate_even_digits },
+      { "hexid", "[0-9A-Fa-f]{1,8}", NULL },
+      { NULL, NULL, NULL }
+   };
+
+   memset(&in, 0, sizeof(in));
+   in.key     = "x";
+   in.type    = RETRO_CORE_OPTION_INPUT_CUSTOM;
+   in.pattern = "{even}";
+
+   expect_true("core even 246",
+         retro_core_option_input_validate_with_atoms(&in, atoms, "246"));
+   expect_false("core even 135",
+         retro_core_option_input_validate_with_atoms(&in, atoms, "135"));
+   expect_false("core even without table",
+         retro_core_option_input_validate(&in, "246"));
+
+   in.pattern = "{hexid}";
+   expect_true("core hexid AB",
+         retro_core_option_input_validate_with_atoms(&in, atoms, "AB"));
+   expect_false("core hexid bad",
+         retro_core_option_input_validate_with_atoms(&in, atoms, "GG"));
+
+   in.pattern = "{nope}";
+   expect_false("unknown atom",
+         retro_core_option_input_validate_with_atoms(&in, atoms, "x"));
+}
+
+int main(void)
+{
+   test_ipv4();
+   test_ipv6();
+   test_hostname();
+   test_address();
+   test_date();
+   test_float();
+   test_uint_port();
+   test_presets();
+   test_custom_pattern();
+   test_custom_compose();
+   test_string();
+   test_uint_atom();
+   test_core_atoms();
+
+   if (failures)
+   {
+      fprintf(stderr, "%d failure(s)\n", failures);
+      return EXIT_FAILURE;
+   }
+
+   printf("test_core_option_input: ok\n");
+   return EXIT_SUCCESS;
+}

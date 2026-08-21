@@ -57,3 +57,9 @@ For any cores that require this functionality, `example_hide_option/libretro_cor
 Core options v2 adds a mechanism for assigning categories to options. On supported fontends, options of a particular category will be displayed in a submenu/subsection of the main core options menu. This functionality may be used to reduce visual clutter, or to effectively 'hide' advanced settings without requiring a dedicated 'toggle display' option.
 
 A template for enabling categories via the core options v2 interface is provided in `example_categories`. The usage of this code is identical to that described in the `Adding 'enhanced' core options to a core` section, with one addition: the `libretro_set_core_options()` function here includes an additional argument identifying whether the frontend has option category support (a core may wish to selectively hide or reorganise options based upon this variable).
+
+## Adding typed freeform core option inputs
+
+Still core options v2. Probe `SET_CORE_OPTION_INPUTS` with `NULL`; old frontends return false.
+
+See `TYPED_INPUTS.md` and `example_inputs/libretro_core_options.h`. Numbers are UINT/FLOAT. Addresses are CUSTOM patterns over `{ipv4}` `{ipv6}` `{hostname}` `{port}`.
