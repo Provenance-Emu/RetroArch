@@ -6225,8 +6225,8 @@ static enum runloop_state_enum runloop_check_state(
 #ifdef HAVE_OVERLAY
    if (settings->bools.input_overlay_enable)
    {
-      static unsigned last_width                     = 0;
-      static unsigned last_height                    = 0;
+      unsigned last_width                            = input_st->overlay_last_width;
+      unsigned last_height                           = input_st->overlay_last_height;
       unsigned video_driver_width                    = 0;
       unsigned video_driver_height                   = 0;
       bool check_next_rotation                       = true;
@@ -6282,8 +6282,8 @@ static enum runloop_state_enum runloop_check_state(
                   settings->bools.input_overlay_enable,
                   input_st->overlay_ptr);
 
-         last_width  = video_driver_width;
-         last_height = video_driver_height;
+         input_st->overlay_last_width  = video_driver_width;
+         input_st->overlay_last_height = video_driver_height;
       }
 
       /* Check OSK hotkey */

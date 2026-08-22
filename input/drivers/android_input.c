@@ -1587,9 +1587,11 @@ static INLINE void android_input_poll_event_type_key(
       int type_event, int *handled)
 {
    uint8_t *buf;
-   int action    = AKeyEvent_getAction(event);
-   int keysym    = keycode;
-   int device_id = AInputEvent_getDeviceId(event);
+   int action           = AKeyEvent_getAction(event);
+   int keysym           = keycode;
+   bool alias_back_as_x =
+         (source & AINPUT_SOURCE_GAMEPAD)  != AINPUT_SOURCE_GAMEPAD
+      && (source & AINPUT_SOURCE_JOYSTICK) != AINPUT_SOURCE_JOYSTICK;
 
    /* android_key_state[] has one row per pad slot plus the
     * dedicated keyboard row at ANDROID_KEYBOARD_PORT. */
@@ -1615,12 +1617,15 @@ static INLINE void android_input_poll_event_type_key(
    {
       case AKEY_EVENT_ACTION_UP:
          BIT_CLEAR(buf, keysym);
-         if (keysym == AKEYCODE_BACK)
+         if (keysym == AKEYCODE_BACK && alias_back_as_x)
+         {
             BIT_CLEAR(buf, AKEYCODE_X); /* alias BACK on remote */
+            BIT_CLEAR(android_key_state[ANDROID_KEYBOARD_PORT], AKEYCODE_X);
+         }
          break;
       case AKEY_EVENT_ACTION_DOWN:
          BIT_SET(buf, keysym);
-         if (keysym == AKEYCODE_BACK)
+         if (keysym == AKEYCODE_BACK && alias_back_as_x)
          {
             BIT_SET(buf, AKEYCODE_X);
             BIT_SET(android_key_state[ANDROID_KEYBOARD_PORT], AKEYCODE_X);
@@ -2132,22 +2137,49 @@ struct TOUCHSTATE
 static void engine_handle_touchpad(
       struct android_app *android, AInputEvent *event, int port)
 {
-   unsigned n;
+   size_t n;
    static struct TOUCHSTATE touchstate[64];
-   int pointer_count	= AMotionEvent_getPointerCount(event);
+   int    raw_action  = AMotionEvent_getAction(event);
+   int    action      = AMOTION_EVENT_ACTION_MASK & raw_action;
+   size_t ptr_count   = AMotionEvent_getPointerCount(event);
+   int    action_id   = -1;
 
-   for(n = 0; n < pointer_count; ++n)
+   /* Every other handler on this path bounds the port it is given.
+    * This one is in range only because android_input_get_id_port maps
+    * a touchpad source to port 0 or to a pad slot below
+    * DEFAULT_MAX_PADS, which is an invariant of a different function. */
+   if (port < 0 || port >= DEFAULT_MAX_PADS)
+      return;
+
+   /* The index of the pointer that went down or up rides in the action
+    * word, and AMotionEvent_getPointerId indexes the event's pointer
+    * array with it without checking it against the count - an index
+    * past the end returns whatever is behind the array, which then
+    * indexes touchstate. Nothing in an event that names a pointer it
+    * does not carry is worth routing. */
+   if (     action == AMOTION_EVENT_ACTION_POINTER_DOWN
+         || action == AMOTION_EVENT_ACTION_POINTER_UP)
    {
-      int pointer_id	=   AMotionEvent_getPointerId(event, n);
-      int action     =   AMOTION_EVENT_ACTION_MASK
-                       & AMotionEvent_getAction(event);
-      int raw_action	=   AMotionEvent_getAction(event);
-      if (     action  == AMOTION_EVENT_ACTION_POINTER_DOWN
-            || action  == AMOTION_EVENT_ACTION_POINTER_UP )
-      {
-         int pointer_index = (AMotionEvent_getAction( event ) & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
-         pointer_id        = AMotionEvent_getPointerId( event, pointer_index);
-      }
+      size_t action_idx = (size_t)
+           ((raw_action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK)
+         >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT);
+
+      if (action_idx >= ptr_count)
+         return;
+
+      action_id = AMotionEvent_getPointerId(event, action_idx);
+   }
+
+   for (n = 0; n < ptr_count; ++n)
+   {
+      int pointer_id = (action_id >= 0)
+         ? action_id
+         : AMotionEvent_getPointerId(event, n);
+
+      /* Pointer ids run to 31 on every Android release, so this only
+       * fires on an id the framework never produces. */
+      if (pointer_id < 0 || pointer_id >= (int)ARRAY_SIZE(touchstate))
+         continue;
 
       if (     action  == AMOTION_EVENT_ACTION_DOWN
             || action  == AMOTION_EVENT_ACTION_POINTER_DOWN )
@@ -2198,6 +2230,14 @@ static void android_input_poll_input_gingerbread(
 {
    AInputEvent              *event = NULL;
    struct android_app *android_app = (struct android_app*)g_android;
+
+   /* The queue is swapped out from under this poll: a destroyed input
+    * queue arrives as a NULL through APP_CMD_INPUT_CHANGED, and a
+    * LOOPER_ID_INPUT raised before that command was serviced is still
+    * delivered afterwards in the same pollOnce batch.
+    * android_input_discard_events guards the same pointer. */
+   if (!android_app || !android_app->inputQueue)
+      return;
 
    /* Read all pending events. */
    if (AInputQueue_getEvent(android_app->inputQueue, &event) >= 0)
@@ -2263,18 +2303,34 @@ static void android_input_poll_input_default(android_input_t *android)
    AInputEvent              *event = NULL;
    struct android_app *android_app = (struct android_app*)g_android;
 
+   /* The queue is swapped out from under this poll: a destroyed input
+    * queue arrives as a NULL through APP_CMD_INPUT_CHANGED, and a
+    * LOOPER_ID_INPUT raised before that command was serviced is still
+    * delivered afterwards in the same pollOnce batch.
+    * android_input_discard_events guards the same pointer. */
+   if (!android_app || !android_app->inputQueue)
+      return;
+
    /* Read all pending events. */
    while (AInputQueue_hasEvents(android_app->inputQueue))
    {
       while (AInputQueue_getEvent(android_app->inputQueue, &event) >= 0)
       {
-         int32_t   handled = 1;
-         int predispatched = AInputQueue_preDispatchEvent(
-               android_app->inputQueue, event);
-         int        source = AInputEvent_getSource(event);
-         int    type_event = AInputEvent_getType(event);
-         int            id = android_input_get_id(event);
-         int          port = android_input_get_id_port(android, id, source);
+         int32_t handled;
+         int source, type_event, id, port;
+
+         /* A pre-dispatched event belongs to the IME from here on and
+          * reappears in the queue if it goes unconsumed, so it can be
+          * neither read from, routed nor finished once this returns
+          * non-zero. */
+         if (AInputQueue_preDispatchEvent(android_app->inputQueue, event))
+            continue;
+
+         handled    = 1;
+         source     = AInputEvent_getSource(event);
+         type_event = AInputEvent_getType(event);
+         id         = android_input_get_id(event);
+         port       = android_input_get_id_port(android, id, source);
 
          if (port < 0 && !android_is_keyboard_id(id))
             port = android_input_recover_port(android, id);
@@ -2306,14 +2362,11 @@ static void android_input_poll_input_default(android_input_t *android)
 
                   if (android_is_keyboard_id(id))
                   {
-                     if (!predispatched)
-                     {
-                        android_input_poll_event_type_keyboard(
-                              event, keycode, &handled);
-                        android_input_poll_event_type_key(
-                              android_app, event, ANDROID_KEYBOARD_PORT,
-                              keycode, source, type_event, &handled);
-                     }
+                     android_input_poll_event_type_keyboard(
+                           event, keycode, &handled);
+                     android_input_poll_event_type_key(
+                           android_app, event, ANDROID_KEYBOARD_PORT,
+                           keycode, source, type_event, &handled);
                   }
                   else
                      android_input_poll_event_type_key(android_app,
@@ -2322,9 +2375,7 @@ static void android_input_poll_input_default(android_input_t *android)
                break;
          }
 
-         if (!predispatched)
-            AInputQueue_finishEvent(android_app->inputQueue, event,
-                  handled);
+         AInputQueue_finishEvent(android_app->inputQueue, event, handled);
       }
    }
 }

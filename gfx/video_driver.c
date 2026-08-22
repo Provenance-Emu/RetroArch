@@ -750,11 +750,22 @@ void *video_driver_get_ptr(void)
 {
    video_driver_state_t *video_st         = &video_driver_st;
 #ifdef HAVE_THREADS
-   if (  VIDEO_DRIVER_IS_THREADED_INTERNAL(video_st)
-       && (video_st->flags & VIDEO_FLAG_THREAD_WRAPPER_ACTIVE))
-      return video_thread_get_ptr(video_st);
-#endif
+   /* Gate the unwrap on the wrapper's presence alone.
+    *
+    * VIDEO_DRIVER_IS_THREADED_INTERNAL() answers whether this session
+    * should be using threaded video, which is not the same question as
+    * whether the wrapper is installed right now: a core setting
+    * SET_HW_RENDER turns it false while the previous session's wrapper
+    * is still up, and video_st->data is the thread_video_t* for as long
+    * as that is the case. Returning it raw hands callers a wrapper
+    * handle to cast to the concrete driver type.
+    *
+    * video_thread_get_ptr() already falls back to video_st->data when
+    * the wrapper is absent, so this is a no-op in every other state. */
+   return video_thread_get_ptr(video_st);
+#else
    return video_st->data;
+#endif
 }
 
 
@@ -1758,6 +1769,12 @@ bool video_driver_is_threaded(void)
    video_driver_state_t *video_st                 = &video_driver_st;
    return VIDEO_DRIVER_IS_THREADED_INTERNAL(video_st);
 }
+
+bool video_driver_thread_wrapper_active(void)
+{
+   video_driver_state_t *video_st                 = &video_driver_st;
+   return (video_st->flags & VIDEO_FLAG_THREAD_WRAPPER_ACTIVE) != 0;
+}
 #endif
 
 bool *video_driver_get_threaded(void)
@@ -1779,8 +1796,7 @@ const char *video_driver_get_ident(void)
    if (!vid)
       return NULL;
 #ifdef HAVE_THREADS
-   if (  VIDEO_DRIVER_IS_THREADED_INTERNAL(video_st)
-       && (video_st->flags & VIDEO_FLAG_THREAD_WRAPPER_ACTIVE))
+   if (video_st->flags & VIDEO_FLAG_THREAD_WRAPPER_ACTIVE)
    {
       const thread_video_t *thr   = (const thread_video_t*)video_st->data;
       if (!thr || !thr->driver)
@@ -2184,7 +2200,7 @@ void video_driver_get_output_size(unsigned *width, unsigned *height)
 {
    video_driver_state_t *video_st = &video_driver_st;
 #ifdef HAVE_THREADS
-   bool is_threaded = VIDEO_DRIVER_IS_THREADED_INTERNAL(video_st);
+   bool is_threaded = video_driver_thread_wrapper_active();
    if (is_threaded && video_st->display_lock)
    {
       slock_lock(video_st->display_lock);
@@ -2206,7 +2222,7 @@ void video_driver_set_output_size(unsigned width, unsigned height)
 {
    video_driver_state_t *video_st = &video_driver_st;
 #ifdef HAVE_THREADS
-   bool is_threaded = VIDEO_DRIVER_IS_THREADED_INTERNAL(video_st);
+   bool is_threaded = video_driver_thread_wrapper_active();
    if (is_threaded && video_st->display_lock)
    {
       slock_lock(video_st->display_lock);
@@ -3392,11 +3408,12 @@ bool video_driver_texture_load(void *data,
    if (!id || !poke || !poke->load_texture)
       return false;
    /* Only use the threaded path when the thread wrapper is
-    * fully active. During reinit, video_st->threaded may
-    * already reflect the new setting while video_st->data
-    * still points to the real driver, not thread_video_t. */
-   threaded = VIDEO_DRIVER_IS_THREADED_INTERNAL(video_st)
-         && (video_st->flags & VIDEO_FLAG_THREAD_WRAPPER_ACTIVE);
+    * installed. Whether the session should be running threaded
+    * video is a different question, and answers false from
+    * SET_HW_RENDER until the video driver is reinitialised - a
+    * window in which video_st->data is still thread_video_t* and
+    * the wrapper's thread still owns the render context. */
+   threaded = video_driver_thread_wrapper_active();
 
    /* GPU-native fast path: upload BCn blocks directly when the driver can
     * sample the format. This works under threading too -- the threaded flag
@@ -3441,8 +3458,7 @@ bool video_driver_texture_unload(uintptr_t *id)
    if (!poke || !poke->unload_texture)
       return false;
    poke->unload_texture(video_st->data,
-         VIDEO_DRIVER_IS_THREADED_INTERNAL(video_st)
-         && (video_st->flags & VIDEO_FLAG_THREAD_WRAPPER_ACTIVE),
+         video_driver_thread_wrapper_active(),
          *id);
    *id = 0;
    return true;
@@ -3732,8 +3748,11 @@ void video_driver_build_info(video_frame_info_t *video_info)
    dispgfx_widget_t *p_dispwidget          = dispwidget_get_ptr();
 #endif
 #ifdef HAVE_THREADS
+   /* Cached so the unlock at the end of this function pairs with the
+    * lock taken here whatever happens in between. Keyed on the wrapper,
+    * which is what makes video_st->width/height shared state. */
    bool is_threaded                        =
-         VIDEO_DRIVER_IS_THREADED_INTERNAL(video_st);
+         video_driver_thread_wrapper_active();
    if (is_threaded && video_st->display_lock)
       slock_lock(video_st->display_lock);
 #endif
@@ -3810,8 +3829,7 @@ void video_driver_build_info(video_frame_info_t *video_info)
    video_info->width                       = video_st->width;
    video_info->height                      = video_st->height;
 #ifdef HAVE_THREADS
-   if (  VIDEO_DRIVER_IS_THREADED_INTERNAL(video_st)
-       && (video_st->flags & VIDEO_FLAG_THREAD_WRAPPER_ACTIVE))
+   if (is_threaded)
       video_thread_get_scale(video_st,
             &video_info->scale_width, &video_info->scale_height);
    else
@@ -3894,12 +3912,15 @@ void video_driver_build_info(video_frame_info_t *video_info)
    video_info->disp_userdata                 = disp_get_ptr();
 
 #ifdef HAVE_THREADS
-   if (  VIDEO_DRIVER_IS_THREADED_INTERNAL(video_st)
-       && (video_st->flags & VIDEO_FLAG_THREAD_WRAPPER_ACTIVE))
-      video_info->userdata                   = video_thread_get_ptr(video_st);
-   else
+   /* Keyed off the wrapper alone: this hands the menu and widget frame
+    * callbacks the pointer they cast to the concrete driver type, and
+    * video_st->data is a thread_video_t* for as long as the wrapper is
+    * installed - including after SET_HW_RENDER has already turned the
+    * session's threading mode false. */
+   video_info->userdata                      = video_thread_get_ptr(video_st);
+#else
+   video_info->userdata                      = video_st->data;
 #endif
-      video_info->userdata                   = video_st->data;
 
 #ifdef HAVE_THREADS
    if (is_threaded && video_st->display_lock)

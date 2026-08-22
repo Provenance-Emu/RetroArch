@@ -715,6 +715,12 @@ void rarch_stop_draw_observer(void)
       cocoa_vk_gfx_ctx_publish_size();
    }
 #endif
+#ifdef HAVE_METAL
+   {
+      void cocoa_metal_gfx_publish_size(void);
+      cocoa_metal_gfx_publish_size();
+   }
+#endif
 }
 
 /* NOTE: This version runs on iOS6+. */
