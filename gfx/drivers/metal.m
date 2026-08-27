@@ -3937,6 +3937,10 @@ static void metal_pull_cached_frame_cb(void *userdata,
    *ctx->uploaded_flag = true;
 }
 
+/* Live MetalDriver for C callbacks (swap_buffers, layout publish).
+ * video_st->data is the thread wrapper when video_threaded is on. */
+static void *metal_ctx_data = NULL;
+
 @implementation MetalDriver
 {
    FrameView *_frameView;
@@ -4154,15 +4158,29 @@ static void metal_pull_cached_frame_cb(void *userdata,
           * which should already be full screen
           * If this turns out to be the wrong assumption, we can use NSScreen
           * to query the dimensions */
+#ifdef HAVE_COCOATOUCH
+         /* iOS MTKView drawable is pixels.  view.frame is points and
+          * would publish a 2x/3x-too-small output size, which auto-scale
+          * then treats as a portrait-like aspect and shrinks pad buttons. */
+         CGFloat scale = cocoa_screen_get_native_scale();
+         CGSize size   = view.bounds.size;
+         if (scale <= 0.0)
+            scale = [[UIScreen mainScreen] scale];
+         if (size.width <= 0.0 || size.height <= 0.0)
+            size = view.frame.size;
+         mode.width  = (unsigned int)(size.width * scale);
+         mode.height = (unsigned int)(size.height * scale);
+#else
          CGSize size = view.frame.size;
          mode.width  = (unsigned int)size.width;
          mode.height = (unsigned int)size.height;
+#endif
       }
 
       [apple_platform setVideoMode:mode];
 
 #ifdef HAVE_COCOATOUCH
-      [self mtkView:view drawableSizeWillChange:CGSizeMake(mode.width, mode.height)];
+      [self mtkView:view drawableSizeWillChange:view.drawableSize];
 #endif
 
       *input         = NULL;
@@ -4361,6 +4379,14 @@ static void metal_pull_cached_frame_cb(void *userdata,
 
 - (void)setViewportWidth:(unsigned)width height:(unsigned)height forceFull:(BOOL)forceFull allowRotate:(BOOL)allowRotate
 {
+   if (_viewport->full_width == width && _viewport->full_height == height)
+   {
+      /* Size unchanged: still publish to video_st so overlay scale
+       * sees a locked output size if the wrapper raced init. */
+      video_driver_set_output_size(width, height);
+      return;
+   }
+
    _viewport->full_width   = width;
    _viewport->full_height  = height;
    video_driver_set_output_size(_viewport->full_width, _viewport->full_height);
@@ -4551,8 +4577,14 @@ static void metal_pull_cached_frame_cb(void *userdata,
 }
 
 - (void)_endFrame { [_context end]; }
-/* TODO/FIXME (sgc): resize*/
-- (void)setNeedsResize { }
+
+void cocoa_metal_gfx_publish_size(void);
+
+- (void)setNeedsResize
+{
+   cocoa_metal_gfx_publish_size();
+}
+
 - (void)setRotation:(unsigned)rotation { [_context setRotation:rotation]; }
 - (Uniforms *)viewportMVP { return &_viewportMVP; }
 
@@ -4561,15 +4593,71 @@ static void metal_pull_cached_frame_cb(void *userdata,
 - (void)mtkView:(MTKView *)view drawableSizeWillChange:(CGSize)size
 {
 #ifdef HAVE_COCOATOUCH
-    CGFloat scale = [[UIScreen mainScreen] scale];
-    [self setViewportWidth:(unsigned int)view.bounds.size.width*scale height:(unsigned int)view.bounds.size.height*scale forceFull:NO allowRotate:YES];
-#else
-   [self setViewportWidth:(unsigned int)size.width height:(unsigned int)size.height forceFull:NO allowRotate:YES];
+   /* Prefer MTKView's pixel drawable size.  bounds*scale can still be
+    * points or the pre-rotation orientation on first layout. */
+   if (size.width <= 0.0 || size.height <= 0.0)
+   {
+      CGFloat scale = cocoa_screen_get_native_scale();
+      if (scale <= 0.0)
+         scale = [[UIScreen mainScreen] scale];
+      size.width  = view.bounds.size.width * scale;
+      size.height = view.bounds.size.height * scale;
+   }
+   RARCH_DBG("[Metal] drawableSizeWillChange size=%.0fx%.0f bounds=%.0fx%.0f "
+         "scale=%.2f native=%.2f drawable=%.0fx%.0f\n",
+         size.width, size.height,
+         view.bounds.size.width, view.bounds.size.height,
+         (double)[[UIScreen mainScreen] scale],
+         (double)cocoa_screen_get_native_scale(),
+         view.drawableSize.width, view.drawableSize.height);
 #endif
+   if (size.width > 0.0 && size.height > 0.0)
+      [self setViewportWidth:(unsigned int)size.width
+                      height:(unsigned int)size.height
+                   forceFull:NO allowRotate:YES];
 }
 
 - (void)drawInMTKView:(MTKView *)view { }
 @end
+
+void cocoa_metal_gfx_publish_size(void)
+{
+   void *ptr;
+   MetalDriver *md;
+   MetalView *view;
+   CGSize size;
+
+   if (!apple_platform || apple_platform.viewType != APPLE_VIEW_TYPE_METAL)
+      return;
+
+   /* metal_ctx_data is the real MetalDriver.  video_st->data is
+    * thread_video_t when video_threaded is on.  video_driver_get_ptr()
+    * unwraps the wrapper once the thread is live. */
+   ptr = metal_ctx_data;
+   if (!ptr)
+      ptr = video_driver_get_ptr();
+   md   = ptr ? (__bridge MetalDriver *)ptr : nil;
+   view = (MetalView *)apple_platform.renderView;
+   if (!md || !view)
+      return;
+
+   size = view.drawableSize;
+#ifdef HAVE_COCOATOUCH
+   if (size.width <= 0.0 || size.height <= 0.0)
+   {
+      CGFloat scale = cocoa_screen_get_native_scale();
+      if (scale <= 0.0)
+         scale = [[UIScreen mainScreen] scale];
+      size.width  = view.bounds.size.width * scale;
+      size.height = view.bounds.size.height * scale;
+   }
+#endif
+
+   if (size.width > 0.0 && size.height > 0.0)
+      [md setViewportWidth:(unsigned)size.width
+                    height:(unsigned)size.height
+                 forceFull:NO allowRotate:YES];
+}
 
 @implementation MetalMenu
 {
@@ -5954,9 +6042,6 @@ static MTLPixelFormat SelectOptimalPixelFormat(MTLPixelFormat fmt)
 static uint32_t metal_get_flags(void *data);
 
 #pragma mark Graphics Context for Metal
-
-/* Metal context data for swap_buffers */
-static void *metal_ctx_data = NULL;
 
 static void metal_ctx_swap_buffers(void *data)
 {

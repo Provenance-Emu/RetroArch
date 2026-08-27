@@ -4468,6 +4468,10 @@ bool command_event(enum event_command cmd, void *data)
                            video_st->height,
                            settings->bools.input_overlay_enable,
                            ol);
+
+            /* load_active only reuploads verts.  Reapply scale so a
+             * page switch after rotate uses the current video aspect. */
+            command_event(CMD_EVENT_OVERLAY_SET_SCALE_FACTOR, NULL);
          }
 #endif
          break;
