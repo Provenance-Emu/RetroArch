@@ -2389,8 +2389,12 @@ enum retro_mod
  * it will be reflected in the frontend
  * and \ref RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE will return \c true.
  * \ref retro_variable::key must match
- * a \ref RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2 "previously-set core option",
- * and \ref retro_variable::value must match one of its defined values.
+ * a \ref RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2 "previously-set core option".
+ * For ordinary list options, \ref retro_variable::value must match one of
+ * its defined values. For options that also have a
+ * \ref RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS "typed input descriptor",
+ * \c value must instead pass the descriptor's validation rules
+ * (it need not appear in the option's \c values array).
  *
  * Possible use cases include:
  *
@@ -2411,6 +2415,7 @@ enum retro_mod
  * or don't match a previously set option.
  *
  * @see RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2
+ * @see RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS
  * @see RETRO_ENVIRONMENT_GET_VARIABLE
  * @see RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE
  */
@@ -2870,6 +2875,48 @@ enum retro_mod
  * and roughly what mid-range HDR displays achieve.
  */
 #define RETRO_ENVIRONMENT_GET_HDR_MAX_NITS (92 | RETRO_ENVIRONMENT_EXPERIMENTAL)
+
+/**
+ * Registers optional typed freeform input descriptors for core options
+ * that were previously defined with
+ * \ref RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2
+ * (or its v1 / intl equivalents).
+ *
+ * Core options remain string-valued on the wire
+ * (\c GET_VARIABLE / \c SET_VARIABLE / \c *.opt files).
+ * This callback tells the frontend how to present and validate
+ * freeform values (integers, floats, addresses, dates, etc.)
+ * so cores are not forced to enumerate every legal choice
+ * in a \c values array capped at
+ * \ref RETRO_NUM_CORE_OPTION_VALUES_MAX.
+ *
+ * This does \em not bump
+ * \ref RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION;
+ * support is detected by probing this environment call with
+ * \c data == \c NULL. Old frontends return \c false and cores
+ * should fall back to discrete \c values lists.
+ *
+ * Call after \c SET_CORE_OPTIONS / \c SET_CORE_OPTIONS_V2 /
+ * \c SET_CORE_OPTIONS_V2_INTL (or their intl variants).
+ * The \c values array on each option definition remains required
+ * (at least a default); on supporting frontends, extra entries
+ * become presets. On old frontends they remain the only choices.
+ *
+ * @param[in] data <tt>const struct retro_core_option_input_set *</tt>.
+ * Input descriptors plus optional named atoms the core defines.
+ * May be \c NULL, in which case the frontend returns \c true
+ * solely to indicate that typed inputs are supported.
+ * The frontend must maintain its own copy of this object,
+ * including all strings. Function pointers remain owned by the core.
+ * @return \c true if the frontend understands typed core option inputs,
+ * even when \c data is \c NULL.
+ *
+ * @see retro_core_option_input_set
+ * @see retro_core_option_input
+ * @see RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2
+ * @see RETRO_ENVIRONMENT_SET_VARIABLE
+ */
+#define RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS 93
 
 /**
  * Result of \c RETRO_ENVIRONMENT_GET_MEMORY_STATUS.
@@ -7308,6 +7355,145 @@ struct retro_core_options_update_display_callback
     * Set by the core.
     */
    retro_core_options_update_display_callback_t callback;
+};
+
+/**
+ * Maximum serialized length (bytes, excluding NUL) for a typed core option value.
+ *
+ * @see retro_core_option_input
+ * @see RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS
+ */
+#define RETRO_CORE_OPTION_INPUT_VALUE_MAX 256
+
+/**
+ * Maximum length (bytes, excluding NUL) of a CUSTOM pattern string.
+ *
+ * @see retro_core_option_input
+ * @see RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS
+ */
+#define RETRO_CORE_OPTION_INPUT_PATTERN_MAX 64
+
+/**
+ * Input presentation / validation kind for a typed core option.
+ *
+ * Values remain strings; the frontend uses this enum to choose
+ * an appropriate editor (stepper, keyboard layout) and to validate
+ * freeform input.
+ *
+ * @see retro_core_option_input
+ * @see RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS
+ */
+enum retro_core_option_input_type
+{
+   RETRO_CORE_OPTION_INPUT_INT = 0, /**< Signed integer; uses min/max/step. */
+   RETRO_CORE_OPTION_INPUT_UINT,    /**< Unsigned integer; uses min/max/step. */
+   RETRO_CORE_OPTION_INPUT_FLOAT,   /**< Float; uses min/max/step/decimals. */
+   RETRO_CORE_OPTION_INPUT_STRING,  /**< Free string; uses min/max_length, allowed_chars. */
+   RETRO_CORE_OPTION_INPUT_CUSTOM   /**< Pattern in \c pattern (named atoms, classes, |, (...)?). */
+};
+
+/**
+ * Full-string validator supplied by a core or the frontend.
+ *
+ * Must not allocate, must not call \c retro_environment_t,
+ * and must remain valid until the next
+ * \ref RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS or core unload.
+ *
+ * @param value NUL-terminated candidate. Never NULL.
+ * @return \c true if \p value is legal.
+ */
+typedef bool (RETRO_CALLCONV *retro_core_option_input_validate_t)(const char *value);
+
+/**
+ * Named atom in a CUSTOM pattern, e.g. \c {ipv4} or a core type \c {mac}.
+ *
+ * Exactly one of \c pattern or \c validate should be set.
+ * Built-in names: \c ipv4 (data: \c {uint:0-255} octets),
+ * \c ipv6, \c hostname, \c date, \c port (\c {uint:1-65535}).
+ * Parameterized \c {uint:min-max} is always available.
+ *
+ * @see retro_core_option_input_set
+ */
+struct retro_core_option_input_atom
+{
+   const char *name;
+   const char *pattern;
+   retro_core_option_input_validate_t validate;
+};
+
+/**
+ * Optional typed freeform input descriptor for a core option.
+ *
+ * Matched to an existing option by \c key after
+ * \ref RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2.
+ * Flat (no union) so cores can use C89 static initializers.
+ *
+ * Use INT/UINT/FLOAT for numbers (see DEF_* in
+ * \c libretro_core_option_input.h). Use STRING for free text.
+ * Everything else is CUSTOM: a pattern over named atoms
+ * (\c {ipv4} \c {ipv6} \c {hostname} \c {port} \c {date} \c {uint:min-max},
+ * plus any atoms the core registers in
+ * \ref retro_core_option_input_set).
+ *
+ * Pattern language (not PCRE): literals, \c [...] classes,
+ * \c ? \c * \c + \c {n} \c {n,m}, named atoms, top-level \c |,
+ * one trailing \c (...)?. Caps: pattern 64 bytes, value 256 bytes.
+ * Bare IPv6 + \c :port is ambiguous; use a separate UINT port option.
+ *
+ * @see RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS
+ * @see libretro_core_option_input.h
+ */
+struct retro_core_option_input
+{
+   /** Must match a previously registered option key. */
+   const char *key;
+
+   enum retro_core_option_input_type type;
+
+   /** Inclusive lower bound for INT/UINT/FLOAT. Unused otherwise (set 0). */
+   double min;
+
+   /** Inclusive upper bound for INT/UINT/FLOAT. Unused otherwise (set 0). */
+   double max;
+
+   /**
+    * Step for INT/UINT/FLOAT left/right adjustment.
+    * If 0, the frontend uses 1 for integers or \c 10^-decimals for floats.
+    */
+   double step;
+
+   /** Digits after the decimal for FLOAT display/validation. */
+   unsigned decimals;
+
+   /** Minimum string length for STRING/CUSTOM. */
+   unsigned min_length;
+
+   /**
+    * Maximum string length for STRING/CUSTOM.
+    * 0 means \ref RETRO_CORE_OPTION_INPUT_VALUE_MAX.
+    * Always clamped to that maximum.
+    */
+   unsigned max_length;
+
+   /**
+    * Allowed characters for STRING.
+    * NULL means printable UTF-8 (reject ASCII controls unless listed).
+    */
+   const char *allowed_chars;
+
+   /** CUSTOM pattern string; ignored for other types. */
+   const char *pattern;
+};
+
+/**
+ * Payload for \ref RETRO_ENVIRONMENT_SET_CORE_OPTION_INPUTS.
+ *
+ * \c atoms may be NULL. Both arrays are NULL-terminated.
+ */
+struct retro_core_option_input_set
+{
+   const struct retro_core_option_input *inputs;
+   const struct retro_core_option_input_atom *atoms;
 };
 
 /** @} */

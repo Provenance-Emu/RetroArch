@@ -15,6 +15,10 @@
  */
 
 #include <string/stdstring.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
 
 #ifdef HAVE_CHEEVOS
 #include "cheevos/cheevos.h"
@@ -27,6 +31,67 @@
 #include "core_option_manager.h"
 #include "msg_hash.h"
 #include "verbosity.h"
+
+#include <libretro_core_option_input.h>
+
+#define CORE_OPTION_INPUT_ATOMS_MAX 32
+
+static void core_option_manager_free_input_atoms(core_option_manager_t *opt)
+{
+   size_t i;
+
+   if (!opt || !opt->input_atoms)
+      return;
+
+   for (i = 0; opt->input_atoms[i].name; i++)
+   {
+      free((void *)opt->input_atoms[i].name);
+      if (opt->input_atoms[i].pattern)
+         free((void *)opt->input_atoms[i].pattern);
+   }
+
+   free(opt->input_atoms);
+   opt->input_atoms = NULL;
+}
+
+static void core_option_manager_copy_input_atoms(
+      core_option_manager_t *opt,
+      const struct retro_core_option_input_atom *atoms)
+{
+   size_t n = 0;
+   size_t i;
+   const struct retro_core_option_input_atom *p;
+
+   core_option_manager_free_input_atoms(opt);
+
+   if (!opt || !atoms)
+      return;
+
+   for (p = atoms; p->name && *p->name; p++)
+   {
+      n++;
+      if (n >= CORE_OPTION_INPUT_ATOMS_MAX)
+         break;
+   }
+
+   if (n == 0)
+      return;
+
+   opt->input_atoms = (struct retro_core_option_input_atom *)
+         calloc(n + 1, sizeof(*opt->input_atoms));
+   if (!opt->input_atoms)
+      return;
+
+   for (i = 0; i < n; i++)
+   {
+      if (!atoms[i].name || !*atoms[i].name)
+         break;
+      opt->input_atoms[i].name = strdup(atoms[i].name);
+      if (atoms[i].pattern && *atoms[i].pattern)
+         opt->input_atoms[i].pattern = strdup(atoms[i].pattern);
+      opt->input_atoms[i].validate = atoms[i].validate;
+   }
+}
 
 /*********************/
 /* Option Conversion */
@@ -818,6 +883,7 @@ core_option_manager_t *core_option_manager_new_vars(
    opt->opts                        = NULL;
    opt->size                        = 0;
    opt->option_map                  = nested_list_init();
+   opt->input_atoms                 = NULL;
    opt->updated                     = false;
    opt->log                         = true;
 
@@ -1107,6 +1173,7 @@ core_option_manager_t *core_option_manager_new(
    opt->opts                         = NULL;
    opt->size                         = 0;
    opt->option_map                   = nested_list_init();
+   opt->input_atoms                  = NULL;
    opt->updated                      = false;
    opt->log                          = true;
 
@@ -1279,6 +1346,12 @@ void core_option_manager_free(core_option_manager_t *opt)
             string_list_free(option->vals);
          if (option->val_labels)
             string_list_free(option->val_labels);
+         if (option->current)
+            free(option->current);
+         if (option->input_allowed_chars)
+            free(option->input_allowed_chars);
+         if (option->input_pattern)
+            free(option->input_pattern);
 
          option->desc             = NULL;
          option->desc_categorized = NULL;
@@ -1287,11 +1360,17 @@ void core_option_manager_free(core_option_manager_t *opt)
          option->key              = NULL;
          option->category_key     = NULL;
          option->vals             = NULL;
+         option->current          = NULL;
+         option->input_allowed_chars = NULL;
+         option->input_pattern    = NULL;
+         option->has_input        = false;
       }
    }
 
    if (opt->option_map)
       nested_list_free(opt->option_map);
+
+   core_option_manager_free_input_atoms(opt);
 
    if (opt->conf)
       config_file_free(opt->conf);
@@ -1622,6 +1701,9 @@ const char *core_option_manager_get_val(core_option_manager_t *opt,
 
    option = (struct core_option*)&opt->opts[idx];
 
+   if (option->has_input && option->current && *option->current)
+      return option->current;
+
    return option->vals->elems[option->index].data;
 }
 
@@ -1642,12 +1724,24 @@ const char *core_option_manager_get_val_label(core_option_manager_t *opt,
       size_t idx)
 {
    struct core_option *option = NULL;
+   size_t i;
 
    if (     !opt
          || (idx >= opt->size))
       return NULL;
 
    option = (struct core_option*)&opt->opts[idx];
+
+   if (option->has_input && option->current && *option->current)
+   {
+      /* Prefer a matching preset label when available. */
+      for (i = 0; i < option->vals->size; i++)
+      {
+         if (string_is_equal(option->vals->elems[i].data, option->current))
+            return option->val_labels->elems[i].data;
+      }
+      return option->current;
+   }
 
    return option->val_labels->elems[option->index].data;
 }
@@ -1702,6 +1796,7 @@ void core_option_manager_set_val(core_option_manager_t *opt,
 {
    struct core_option *option = NULL;
    size_t cur_idx = 0;
+   const char *new_val = NULL;
 
    if (     !opt
          || (idx >= opt->size))
@@ -1710,14 +1805,25 @@ void core_option_manager_set_val(core_option_manager_t *opt,
    option        = (struct core_option*)&opt->opts[idx];
    cur_idx       = option->index;
    option->index = val_idx % option->vals->size;
+   new_val       = option->vals->elems[option->index].data;
+
+   if (option->has_input && new_val)
+   {
+      if (option->current)
+         free(option->current);
+      option->current = strdup(new_val);
+   }
+
    opt->updated  = true;
    opt->log      = false;
 
    /* Log changes only */
-   if (cur_idx != opt->opts[idx].index)
+   if (cur_idx != opt->opts[idx].index || option->has_input)
       RARCH_DBG("[Core] Set option: %s = \"%s\"\n",
             opt->opts[idx].key,
-            option->vals->elems[option->index].data);
+            option->has_input && option->current
+            ? option->current
+            : option->vals->elems[option->index].data);
 
 #ifdef HAVE_CHEEVOS
    rcheevos_validate_config_settings();
@@ -1770,15 +1876,130 @@ void core_option_manager_adjust_val(core_option_manager_t* opt,
 
    option        = (struct core_option*)&opt->opts[idx];
    cur_idx       = option->index;
-   option->index = (option->index + option->vals->size + adjustment) % option->vals->size;
-   opt->updated  = true;
-   opt->log      = false;
 
-   /* Log changes only */
-   if (cur_idx != opt->opts[idx].index)
+   if (option->has_input
+         && (option->input_type == RETRO_CORE_OPTION_INPUT_INT
+            || option->input_type == RETRO_CORE_OPTION_INPUT_UINT
+            || option->input_type == RETRO_CORE_OPTION_INPUT_FLOAT))
+   {
+      struct retro_core_option_input in;
+      double step;
+      double value = 0.0;
+      char buf[64];
+      const char *cur;
+
+      if (!core_option_manager_get_input(opt, idx, &in))
+         return;
+
+      step = retro_core_option_input_effective_step(&in);
+      cur  = option->current ? option->current
+            : option->vals->elems[option->index].data;
+
+      if (option->input_type == RETRO_CORE_OPTION_INPUT_FLOAT)
+      {
+         if (!retro_core_option_input_parse_float(cur, &value))
+            value = in.min;
+         value += (double)adjustment * step;
+         if (value < in.min)
+            value = in.min;
+         if (value > in.max)
+            value = in.max;
+         if (in.decimals > 0)
+            snprintf(buf, sizeof(buf), "%.*f", (int)in.decimals, value);
+         else
+            snprintf(buf, sizeof(buf), "%g", value);
+      }
+      else if (option->input_type == RETRO_CORE_OPTION_INPUT_INT)
+      {
+         long iv = 0;
+         if (!retro_core_option_input_parse_int(cur, &iv))
+            iv = (long)in.min;
+         iv += (long)adjustment * (long)(step >= 1.0 ? step : 1.0);
+         if ((double)iv < in.min)
+            iv = (long)in.min;
+         if ((double)iv > in.max)
+            iv = (long)in.max;
+         snprintf(buf, sizeof(buf), "%ld", iv);
+      }
+      else
+      {
+         unsigned long uv = 0;
+         long step_i;
+         long delta;
+         double next;
+
+         if (!retro_core_option_input_parse_uint(cur, &uv))
+            uv = (unsigned long)in.min;
+
+         step_i = (long)(step >= 1.0 ? step : 1.0);
+         if (step_i < 1)
+            step_i = 1;
+
+         /* Compute in signed space, then clamp to [min, max]. */
+         delta = (long)adjustment * step_i;
+         next  = (double)uv + (double)delta;
+         if (next < in.min)
+            next = in.min;
+         if (next > in.max)
+            next = in.max;
+         uv = (unsigned long)next;
+         snprintf(buf, sizeof(buf), "%lu", uv);
+      }
+
+      if (!retro_core_option_input_validate_with_atoms(
+               &in, opt->input_atoms, buf))
+         return;
+
+      if (option->current)
+         free(option->current);
+      option->current = strdup(buf);
+
+      /* Keep index aligned with a matching preset when possible. */
+      {
+         size_t i;
+         for (i = 0; i < option->vals->size; i++)
+         {
+            if (string_is_equal(option->vals->elems[i].data, buf))
+            {
+               option->index = i;
+               break;
+            }
+         }
+      }
+
+      opt->updated = true;
+      opt->log     = false;
       RARCH_DBG("[Core] Set option: %s = \"%s\"\n",
-            opt->opts[idx].key,
-            option->vals->elems[option->index].data);
+            opt->opts[idx].key, buf);
+   }
+   else
+   {
+      const char *new_val;
+
+      option->index = (option->index + option->vals->size + adjustment)
+            % option->vals->size;
+      new_val = option->vals->elems[option->index].data;
+
+      /* Keep freeform current in sync when cycling presets
+       * (STRING/CUSTOM, or numeric with presets). */
+      if (option->has_input && new_val)
+      {
+         if (option->current)
+            free(option->current);
+         option->current = strdup(new_val);
+      }
+
+      opt->updated  = true;
+      opt->log      = false;
+
+      /* Log changes only */
+      if (cur_idx != opt->opts[idx].index || option->has_input)
+         RARCH_DBG("[Core] Set option: %s = \"%s\"\n",
+               opt->opts[idx].key,
+               option->has_input && option->current
+               ? option->current
+               : option->vals->elems[option->index].data);
+   }
 
 #ifdef HAVE_CHEEVOS
    rcheevos_validate_config_settings();
@@ -1821,6 +2042,7 @@ void core_option_manager_set_default(core_option_manager_t *opt,
 {
    struct core_option *option = NULL;
    size_t cur_idx = 0;
+   const char *def_val = NULL;
 
    if (     !opt
          || (idx >= opt->size))
@@ -1829,23 +2051,31 @@ void core_option_manager_set_default(core_option_manager_t *opt,
    option        = (struct core_option*)&opt->opts[idx];
    cur_idx       = option->index;
    option->index = option->default_index;
+   def_val       = option->vals->elems[option->index].data;
+
+   if (option->has_input && def_val)
+   {
+      if (option->current)
+         free(option->current);
+      option->current = strdup(def_val);
+   }
+
    opt->updated  = true;
    opt->log      = false;
 
    /* Log changes only */
-   if (cur_idx != option->index)
+   if (cur_idx != option->index || option->has_input)
       RARCH_DBG("[Core] Reset option: %s = \"%s\"\n",
             opt->opts[idx].key,
-            option->vals->elems[option->index].data);
+            option->has_input && option->current
+            ? option->current
+            : option->vals->elems[option->index].data);
 
 #ifdef HAVE_CHEEVOS
    rcheevos_validate_config_settings();
 #endif
 
 #ifdef HAVE_MENU
-   /* Refresh menu (if required) if core option
-    * visibility has changed as a result of modifying
-    * the current option value */
    if (retroarch_ctl(RARCH_CTL_CORE_OPTION_UPDATE_DISPLAY, NULL) &&
        refresh_menu)
    {
@@ -1918,9 +2148,200 @@ void core_option_manager_flush(core_option_manager_t *opt,
    for (i = 0; i < opt->size; i++)
    {
       struct core_option *option = (struct core_option*)&opt->opts[i];
+      const char *val;
 
-      if (option)
-         config_set_string(conf, option->key,
-               opt->opts[i].vals->elems[opt->opts[i].index].data);
+      if (!option)
+         continue;
+
+      val = (option->has_input && option->current && *option->current)
+            ? option->current
+            : opt->opts[i].vals->elems[opt->opts[i].index].data;
+
+      config_set_string(conf, option->key, val);
+   }
+}
+
+bool core_option_manager_get_input(core_option_manager_t *opt,
+      size_t idx, struct retro_core_option_input *out)
+{
+   struct core_option *option;
+
+   if (!opt || !out || idx >= opt->size)
+      return false;
+
+   option = &opt->opts[idx];
+   if (!option->has_input)
+      return false;
+
+   memset(out, 0, sizeof(*out));
+   out->key           = option->key;
+   out->type          = option->input_type;
+   out->min           = option->input_min;
+   out->max           = option->input_max;
+   out->step          = option->input_step;
+   out->decimals      = option->input_decimals;
+   out->min_length    = option->input_min_length;
+   out->max_length    = option->input_max_length;
+   out->allowed_chars = option->input_allowed_chars;
+   out->pattern       = option->input_pattern;
+   return true;
+}
+
+bool core_option_manager_set_val_string(core_option_manager_t *opt,
+      size_t idx, const char *val, bool refresh_menu)
+{
+   struct core_option *option;
+   struct retro_core_option_input in;
+   size_t i;
+
+   if (!opt || !val || !*val || idx >= opt->size)
+      return false;
+
+   option = &opt->opts[idx];
+
+   if (option->has_input)
+   {
+      if (!core_option_manager_get_input(opt, idx, &in))
+         return false;
+      if (!retro_core_option_input_validate_with_atoms(
+               &in, opt->input_atoms, val))
+         return false;
+
+      if (option->current)
+         free(option->current);
+      option->current = strdup(val);
+
+      for (i = 0; i < option->vals->size; i++)
+      {
+         if (string_is_equal(option->vals->elems[i].data, val))
+         {
+            option->index = i;
+            break;
+         }
+      }
+   }
+   else
+   {
+      size_t val_idx = 0;
+      if (!core_option_manager_get_val_idx(opt, idx, val, &val_idx))
+         return false;
+      option->index = val_idx;
+   }
+
+   opt->updated = true;
+   opt->log     = false;
+   RARCH_DBG("[Core] Set option: %s = \"%s\"\n", option->key, val);
+
+#ifdef HAVE_CHEEVOS
+   rcheevos_validate_config_settings();
+#endif
+
+#ifdef HAVE_MENU
+   if (retroarch_ctl(RARCH_CTL_CORE_OPTION_UPDATE_DISPLAY, NULL) &&
+       refresh_menu)
+   {
+      struct menu_state *menu_st = menu_state_get_ptr();
+      menu_st->flags            |=  MENU_ST_FLAG_ENTRIES_NEED_REFRESH
+                                 |  MENU_ST_FLAG_PREVENT_POPULATE;
+   }
+#endif
+
+   return true;
+}
+
+void core_option_manager_set_inputs(core_option_manager_t *opt,
+      const struct retro_core_option_input_set *set)
+{
+   size_t i;
+   size_t j;
+   const struct retro_core_option_input *inputs;
+
+   if (!opt)
+      return;
+
+   core_option_manager_free_input_atoms(opt);
+
+   /* Clear existing typed metadata. */
+   for (i = 0; i < opt->size; i++)
+   {
+      struct core_option *option = &opt->opts[i];
+
+      if (option->input_allowed_chars)
+      {
+         free(option->input_allowed_chars);
+         option->input_allowed_chars = NULL;
+      }
+      if (option->input_pattern)
+      {
+         free(option->input_pattern);
+         option->input_pattern = NULL;
+      }
+      if (option->current)
+      {
+         free(option->current);
+         option->current = NULL;
+      }
+      option->has_input = false;
+   }
+
+   if (!set)
+      return;
+
+   core_option_manager_copy_input_atoms(opt, set->atoms);
+
+   inputs = set->inputs;
+   if (!inputs)
+      return;
+
+   for (j = 0; inputs[j].key && *inputs[j].key; j++)
+   {
+      size_t idx = 0;
+      struct core_option *option;
+      struct retro_core_option_input in;
+      struct config_entry_list *entry = NULL;
+      const char *def_val;
+
+      if (!core_option_manager_get_idx(opt, inputs[j].key, &idx))
+         continue;
+
+      option = &opt->opts[idx];
+      option->has_input         = true;
+      option->input_type        = inputs[j].type;
+      option->input_min         = inputs[j].min;
+      option->input_max         = inputs[j].max;
+      option->input_step        = inputs[j].step;
+      option->input_decimals    = inputs[j].decimals;
+      option->input_min_length  = inputs[j].min_length;
+      option->input_max_length  = inputs[j].max_length;
+
+      if (inputs[j].allowed_chars && *inputs[j].allowed_chars)
+         option->input_allowed_chars = strdup(inputs[j].allowed_chars);
+      if (inputs[j].pattern && *inputs[j].pattern)
+         option->input_pattern = strdup(inputs[j].pattern);
+
+      def_val = option->vals->elems[option->default_index].data;
+      option->current = def_val ? strdup(def_val) : NULL;
+
+      /* Re-read config so freeform saved values are accepted. */
+      if (opt->conf)
+         entry = config_get_entry(opt->conf, option->key);
+
+      if (entry && entry->value && *entry->value
+            && core_option_manager_get_input(opt, idx, &in)
+            && retro_core_option_input_validate_with_atoms(
+                  &in, opt->input_atoms, entry->value))
+      {
+         free(option->current);
+         option->current = strdup(entry->value);
+
+         for (i = 0; i < option->vals->size; i++)
+         {
+            if (string_is_equal(option->vals->elems[i].data, entry->value))
+            {
+               option->index = i;
+               break;
+            }
+         }
+      }
    }
 }
